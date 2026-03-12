@@ -1,134 +1,212 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {
+  App,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+} from 'obsidian';
+import { GitHubImageHosting } from './github-image';
 
-// Remember to rename these classes and interfaces!
+// ── Types & defaults ────────────────────────────────────────────────────────
 
-interface MyPluginSettings {
-	mySetting: string;
+interface GitHubImageUploaderSettings {
+  /** GitHub image hosting enabled */
+  enableImageHosting: boolean;
+  /** GitHub personal access token */
+  gitHubToken: string;
+  /** GitHub repository owner */
+  gitHubOwner: string;
+  /** GitHub repository name */
+  gitHubRepo: string;
+  /** Path in repo to store images */
+  imagePath: string;
+  /** GitHub branch to upload to */
+  gitHubBranch: string;
+  /** Local folder to save images when not uploading to GitHub */
+  localFolder: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
+  enableImageHosting: true,
+  gitHubToken: '',
+  gitHubOwner: '',
+  gitHubRepo: '',
+  imagePath: 'assets/images',
+  gitHubBranch: 'main',
+  localFolder: 'assets',
+};
+
+// ── Plugin ──────────────────────────────────────────────────────────────────
+
+export default class GitHubImageUploaderPlugin extends Plugin {
+  settings: GitHubImageUploaderSettings;
+
+  async onload() {
+    await this.loadSettings();
+    this.addSettingTab(new GitHubImageUploaderSettingTab(this.app, this));
+
+    // Register GitHub image hosting
+    const imageHosting = new GitHubImageHosting(this, this.app);
+    imageHosting.register();
+
+    console.log('GitHub Image Uploader plugin loaded');
+  }
+
+  onunload() {
+    console.log('GitHub Image Uploader plugin unloaded');
+  }
+
+  async loadSettings() {
+    this.settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      await this.loadData(),
+    );
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+// ── Settings tab ────────────────────────────────────────────────────────────
 
-	async onload() {
-		await this.loadSettings();
+class GitHubImageUploaderSettingTab extends PluginSettingTab {
+  plugin: GitHubImageUploaderPlugin;
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+  constructor(app: App, plugin: GitHubImageUploaderPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    containerEl.createEl('h2', { text: 'GitHub Image Uploader' });
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+    // ── Main Toggle ────────────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🖼️ 基本设置' });
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    new Setting(containerEl)
+      .setName('启用 GitHub 图床')
+      .setDesc('粘贴图片时自动弹出上传选项')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableImageHosting)
+          .onChange(async value => {
+            this.plugin.settings.enableImageHosting = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+    // ── GitHub Configuration ────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🔐 GitHub 配置' });
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
+    new Setting(containerEl)
+      .setName('GitHub Token')
+      .setDesc((() => {
+        const frag = document.createDocumentFragment();
+        frag.appendText('Personal Access Token（需要 Contents 的 Read & Write 权限）。');
+        frag.appendChild(document.createElement('br'));
+        const link = document.createElement('a');
+        link.href = 'https://github.com/settings/personal-access-tokens/new';
+        link.textContent = '→ 点击这里生成 Fine-grained Token';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        frag.appendChild(link);
+        return frag;
+      })())
+      .addText(text => {
+        text
+          .setPlaceholder('ghp_xxxxxxxxxxxxx')
+          .setValue(this.plugin.settings.gitHubToken)
+          .onChange(async value => {
+            this.plugin.settings.gitHubToken = value;
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.type = 'password';
+      });
 
-	onunload() {
+    new Setting(containerEl)
+      .setName('GitHub 用户名')
+      .setDesc('仓库所有者的 GitHub 用户名')
+      .addText(text =>
+        text
+          .setPlaceholder('username')
+          .setValue(this.plugin.settings.gitHubOwner)
+          .onChange(async value => {
+            this.plugin.settings.gitHubOwner = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-	}
+    new Setting(containerEl)
+      .setName('仓库名称')
+      .setDesc('用于存储图片的 GitHub 仓库名')
+      .addText(text =>
+        text
+          .setPlaceholder('my-repo')
+          .setValue(this.plugin.settings.gitHubRepo)
+          .onChange(async value => {
+            this.plugin.settings.gitHubRepo = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
+    new Setting(containerEl)
+      .setName('图片存储目录')
+      .setDesc('仓库中存储图片的目录路径（相对于仓库根目录）')
+      .addText(text =>
+        text
+          .setPlaceholder('assets/images')
+          .setValue(this.plugin.settings.imagePath)
+          .onChange(async value => {
+            this.plugin.settings.imagePath = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+    new Setting(containerEl)
+      .setName('目标分支')
+      .setDesc('上传到的 GitHub 分支')
+      .addText(text =>
+        text
+          .setPlaceholder('main')
+          .setValue(this.plugin.settings.gitHubBranch)
+          .onChange(async value => {
+            this.plugin.settings.gitHubBranch = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+    // ── Local Storage ──────────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '💾 本地存储' });
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+    new Setting(containerEl)
+      .setName('本地图片文件夹')
+      .setDesc('选择"保存到本地"时，图片保存的文件夹路径')
+      .addText(text =>
+        text
+          .setPlaceholder('assets')
+          .setValue(this.plugin.settings.localFolder)
+          .onChange(async value => {
+            this.plugin.settings.localFolder = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+    // ── Info Section ───────────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '📖 使用说明' });
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+    const infoEl = containerEl.createDiv();
+    infoEl.style.cssText = 'background: var(--background-secondary); padding: 16px; border-radius: 8px; margin-top: 12px; font-size: 0.95em; line-height: 1.6;';
+    infoEl.innerHTML = '<strong>功能说明：</strong><br/>' +
+      '• 在编辑器中粘贴图片时，会弹出对话框<br/>' +
+      '• 选择"上传到 GitHub"：图片将上传到配置的 GitHub 仓库，并插入网络链接<br/>' +
+      '• 选择"保存到本地"：图片将保存到本地 Vault，并插入相对路径<br/>' +
+      '<br/><strong>配置要求：</strong><br/>' +
+      '• GitHub Token：需要有 Contents 仓库权限（读写）<br/>' +
+      '• 用户名和仓库名：必须正确配置才能上传<br/>' +
+      '• 分支名：通常为 main 或 master';
+  }
 }

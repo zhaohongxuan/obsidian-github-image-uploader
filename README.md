@@ -1,96 +1,167 @@
-# Obsidian Sample Plugin
+# GitHub Image Uploader
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+An Obsidian plugin that allows you to upload images directly to GitHub when pasting them in your notes. You can choose to upload to GitHub for cloud-based hosting or save them locally in your vault.
 
-This project uses Typescript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in Typescript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-**Note:** The Obsidian API is still in early alpha and is subject to change at any time!
+✨ **Smart Image Upload**
+- Paste images directly into your Obsidian notes
+- Choose between uploading to GitHub or saving locally with one click
+- Automatic filename generation with timestamps
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+🔐 **GitHub Integration**
+- Uses GitHub's REST API for secure uploads
+- Supports fine-grained personal access tokens
+- Customizable repository, branch, and directory path
+- Direct image URLs for sharing and web viewing
 
-## First time developing plugins?
+💾 **Local Storage Option**
+- Save images locally to your vault
+- Configurable storage folder
+- Relative path references for offline access
 
-Quick starting guide for new plugin devs:
+⚙️ **Flexible Configuration**
+- Easy setup through settings panel
+- Support for multiple repositories
+- Customizable storage paths for both GitHub and local storage
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Installation
 
-## Releasing new releases
+### Via Obsidian Community Plugins
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+1. Open Obsidian Settings → Community plugins
+2. Search for "GitHub Image Uploader"
+3. Click Install
+4. Enable the plugin
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Manual Installation
 
-## Adding your plugin to the community plugin list
+1. Download the latest release
+2. Extract to your vault's `.obsidian/plugins/github-image-uploader/` folder
+3. Reload Obsidian
+4. Enable the plugin in settings
 
-- Check https://github.com/obsidianmd/obsidian-releases/blob/master/plugin-review.md
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+## Setup Guide
 
-## How to use
+### Step 1: Create a GitHub Token
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+1. Go to [GitHub Personal Access Tokens](https://github.com/settings/personal-access-tokens/new)
+2. Create a new fine-grained token with these permissions:
+   - Repository permissions → Contents → Read and write access
+3. Copy the token
 
-## Manually installing the plugin
+### Step 2: Configure the Plugin
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+1. Open Obsidian Settings → GitHub Image Uploader
+2. Paste your GitHub token in the "GitHub Token" field
+3. Enter your GitHub username in "GitHub 用户名"
+4. Enter the repository name in "仓库名称"
+5. (Optional) Configure custom image storage path and branch
 
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint .\src\`
+### Step 3: Start Uploading!
 
-## Funding URL
+Simply paste an image into your note. A dialog will appear asking where to save the image:
+- **上传到 GitHub**: Upload to your GitHub repository
+- **保存到本地**: Save to your local vault
+- **取消**: Cancel
 
-You can include funding URLs where people who use your plugin can financially support it.
+## Usage
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+### Pasting Images
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+When you paste an image:
+
+1. A confirmation dialog appears with a preview
+2. Select your preferred storage option
+3. The image is automatically inserted with a markdown link
+
+### For GitHub Upload
+
+- Images are uploaded to: `https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{imagePath}/{filename}`
+- Filenames are auto-generated with timestamp: `YYYY-MM-DD_HH-MM-SS_random.ext`
+
+### For Local Storage
+
+- Images are saved to your configured local folder
+- Relative paths are used for vault portability
+
+## Settings
+
+### Basic
+
+- **启用 GitHub 图床** - Toggle the image upload feature on/off
+
+### GitHub Configuration
+
+- **GitHub Token** - Your personal access token
+- **GitHub 用户名** - Repository owner's username
+- **仓库名称** - Repository name
+- **图片存储目录** - Path in repository (e.g., `assets/images`)
+- **目标分支** - Target branch (usually `main` or `master`)
+
+### Local Storage
+
+- **本地图片文件夹** - Local folder for saving images (e.g., `assets`)
+
+## Development
+
+### Prerequisites
+
+- Node.js v16+
+- npm or yarn
+
+### Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Start development with hot reload
+npm run dev
+
+# Build for production
+npm run build
 ```
 
-If you have multiple URLs, you can also do:
+### Project Structure
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
+```
+.
+├── main.ts                 # Plugin main file
+├── github-image.ts         # GitHub upload module
+├── manifest.json           # Plugin metadata
+├── package.json            # Dependencies
+├── tsconfig.json           # TypeScript config
+├── esbuild.config.mjs      # Build config
+└── styles.css              # Plugin styles
 ```
 
-## API Documentation
+## Troubleshooting
 
-See https://github.com/obsidianmd/obsidian-api
+### GitHub Upload Fails
+
+- Verify your GitHub token has correct permissions (Contents: read & write)
+- Check that username and repository name are correct
+- Ensure the target branch exists in your repository
+- Verify network connectivity
+
+### Images Not Showing
+
+- For GitHub uploads: Check the image URL in the markdown link
+- For local storage: Ensure the file path is correct relative to your vault
+
+## Contributing
+
+Contributions are welcome! Feel free to submit issues or pull requests.
+
+## License
+
+MIT
+
+## Support
+
+If you encounter any issues or have suggestions, please open an issue on the [GitHub repository](https://github.com/zhaohongxuan/obsidian-github-image-uploader).
+
+---
+
+Made with ❤️ by Xuan
