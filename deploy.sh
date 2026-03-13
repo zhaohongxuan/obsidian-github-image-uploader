@@ -88,8 +88,8 @@ build_project() {
     
     npm run build
     
-    if [ ! -f "main.js" ]; then
-        log_error "构建失败，未生成 main.js"
+    if [ ! -f "dist/main.js" ]; then
+        log_error "构建失败，未生成 dist/main.js"
         exit 1
     fi
     
@@ -104,8 +104,8 @@ sync_files() {
     mkdir -p "$PLUGIN_DIR"
     
     # 检查文件是否存在
-    if [ ! -f "main.js" ]; then
-        log_error "main.js 不存在，请先运行 build"
+    if [ ! -f "dist/main.js" ]; then
+        log_error "dist/main.js 不存在，请先运行 build"
         exit 1
     fi
     
@@ -119,7 +119,7 @@ sync_files() {
     fi
     
     # 复制文件
-    cp main.js "$PLUGIN_DIR/"
+    cp dist/main.js "$PLUGIN_DIR/"
     cp manifest.json "$PLUGIN_DIR/"
     [ -f "styles.css" ] && cp styles.css "$PLUGIN_DIR/"
     
