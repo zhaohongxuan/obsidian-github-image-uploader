@@ -1,0 +1,57 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'main.ts'
+      - 'github-image.ts'
+      - 'styles.css'
+      - 'esbuild.config.mjs'
+      - 'tsconfig.json'
+      - 'package.json'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Type checking
+      run: npx tsc -noEmit -skipLibCheck
+
+    - name: Build
+      run: npm run build
+
+    - name: Check build output
+      run: |
+        if [ ! -f main.js ]; then
+          echo "❌ Build failed: main.js not generated"
+          exit 1
+        fi
+        echo "✅ Build successful"
+        ls -lh main.js manifest.json styles.css
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: plugin-artifacts
+        path: |
+          main.js
+          manifest.json
+          styles.css

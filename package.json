@@ -5,7 +5,13 @@
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "version": "node version-bump.mjs && git add manifest.json versions.json",
+    "deploy": "bash deploy.sh both",
+    "deploy:build": "bash deploy.sh build",
+    "deploy:sync": "bash deploy.sh sync",
+    "deploy:dev": "bash deploy.sh dev",
+    "test": "npm run build"
   },
   "keywords": ["obsidian", "image", "github", "upload"],
   "author": "Xuan",
