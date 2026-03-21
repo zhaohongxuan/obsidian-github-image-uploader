@@ -4,7 +4,7 @@ import {
   PluginSettingTab,
   Setting,
 } from 'obsidian';
-import { GitHubImageHosting } from './github-image';
+import { GitHubImageHosting, ImageGalleryModal, GALLERY_VIEW_TYPE, GalleryView } from './github-image';
 
 // ── Types & defaults ────────────────────────────────────────────────────────
 
@@ -65,9 +65,24 @@ export default class GitHubImageUploaderPlugin extends Plugin {
     await this.loadSettings();
     this.addSettingTab(new GitHubImageUploaderSettingTab(this.app, this));
 
+    // Register gallery view
+    this.registerView(GALLERY_VIEW_TYPE, (leaf) => new GalleryView(leaf, this));
+
     // Register GitHub image hosting
     const imageHosting = new GitHubImageHosting(this, this.app);
     imageHosting.register();
+
+    // Add command to open image gallery
+    this.addCommand({
+      id: 'github-image-uploader-gallery',
+      name: '打开图片库',
+      callback: () => {
+        this.app.workspace.getLeaf('split').setViewState({
+          type: GALLERY_VIEW_TYPE,
+          active: true,
+        });
+      },
+    });
 
     console.log('GitHub Image Uploader plugin loaded');
   }

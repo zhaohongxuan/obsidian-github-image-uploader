@@ -1,5 +1,15 @@
-import { App, MarkdownView, Notice, Modal } from 'obsidian';
+import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu } from 'obsidian';
 import type GitHubImageUploaderPlugin from './main';
+
+/**
+ * Image data interface
+ */
+export interface GalleryImage {
+  name: string;
+  size: number;
+  url: string;
+  date: Date;
+}
 
 /**
  * GitHub Image Hosting Module
@@ -747,6 +757,600 @@ class UploadProgressModal extends Modal {
         clearInterval(interval);
       }
     }, 500);
+  }
+}
+
+/**
+ * Image Gallery View - displays images in a side panel/window
+ */
+export const GALLERY_VIEW_TYPE = 'github-image-gallery-view';
+
+export class GalleryView extends ItemView {
+  private plugin: GitHubImageUploaderPlugin;
+  private allImages: GalleryImage[] = [];
+  private displayedImages: GalleryImage[] = [];
+  private imagesPerPage = 30;
+  private currentPage = 0;
+  private galleryGrid: HTMLElement | null = null;
+  private intersectionObserver: IntersectionObserver | null = null;
+  private isLoadingImages = true;
+
+  constructor(leaf: WorkspaceLeaf, plugin: GitHubImageUploaderPlugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType(): string {
+    return GALLERY_VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return '📸 图片库';
+  }
+
+  getIcon(): string {
+    return 'image';
+  }
+
+  async onOpen() {
+    const container = this.containerEl.children[1] as HTMLElement;
+    container.empty();
+    container.addClass('gallery-view-container');
+
+    // Create header with title and refresh button
+    const header = container.createEl('div', { cls: 'gallery-view-header' });
+    
+    const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
+    const title = titleContainer.createEl('h2', { text: '📸 图片库' });
+    title.style.margin = '0';
+    
+    const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
+    refreshBtn.title = '刷新图片库';
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '⏳';
+      try {
+        await this.refreshGallery(container);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄';
+      }
+    });
+
+    // Loading state
+    const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
+    loadingEl.textContent = '加载中...';
+
+    try {
+      // Fetch all images from GitHub
+      this.allImages = await this.fetchImagesFromGitHub();
+
+      // Clear loading
+      container.empty();
+      container.appendChild(header);
+
+      if (this.allImages.length === 0) {
+        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
+        emptyEl.innerHTML = '<p style="text-align: center; color: var(--text-muted); margin-top: 40px;">📭 还没有上传过图片</p>';
+        return;
+      }
+
+      // Info bar
+      const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
+      infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
+
+      // Gallery grid
+      this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
+
+      // Load initial batch
+      this.loadMoreImages();
+
+      // Setup intersection observer for infinite scroll
+      this.setupInfiniteScroll();
+    } catch (error) {
+      container.empty();
+      container.appendChild(header);
+      const errorEl = container.createEl('div', { cls: 'gallery-error' });
+      const msg = error instanceof Error ? error.message : String(error);
+      errorEl.innerHTML = `<p style="color: var(--text-error);">❌ 加载失败: ${msg}</p><p style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">请检查 GitHub 配置和网络连接</p>`;
+    }
+  }
+
+  private async refreshGallery(container: HTMLElement) {
+    try {
+      // Reset state
+      this.allImages = [];
+      this.displayedImages = [];
+      this.currentPage = 0;
+      
+      // Clear container
+      container.empty();
+      
+      // Create header again
+      const header = container.createEl('div', { cls: 'gallery-view-header' });
+      const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
+      const title = titleContainer.createEl('h2', { text: '📸 图片库' });
+      title.style.margin = '0';
+      
+      const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
+      refreshBtn.title = '刷新图片库';
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = '⏳';
+        try {
+          await this.refreshGallery(container);
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = '🔄';
+        }
+      });
+
+      // Loading state
+      const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
+      loadingEl.textContent = '刷新中...';
+
+      // Fetch all images from GitHub
+      this.allImages = await this.fetchImagesFromGitHub();
+
+      // Clear loading
+      container.empty();
+      container.appendChild(header);
+
+      if (this.allImages.length === 0) {
+        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
+        emptyEl.innerHTML = '<p style="text-align: center; color: var(--text-muted); margin-top: 40px;">📭 还没有上传过图片</p>';
+        return;
+      }
+
+      // Info bar
+      const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
+      infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
+
+      // Gallery grid
+      this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
+
+      // Load initial batch
+      this.loadMoreImages();
+
+      // Setup intersection observer for infinite scroll
+      this.setupInfiniteScroll();
+    } catch (error) {
+      container.empty();
+      const header = container.createEl('div', { cls: 'gallery-view-header' });
+      const title = header.createEl('h2', { text: '📸 图片库' });
+      title.style.margin = '0';
+      
+      const errorEl = container.createEl('div', { cls: 'gallery-error' });
+      const msg = error instanceof Error ? error.message : String(error);
+      errorEl.innerHTML = `<p style="color: var(--text-error);">❌ 刷新失败: ${msg}</p><p style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">请检查 GitHub 配置和网络连接</p>`;
+    }
+  }
+
+  async onClose() {
+    // Cleanup observer
+    if (this.intersectionObserver) {
+      this.intersectionObserver.disconnect();
+    }
+  }
+
+  onHeaderMenu(menu: Menu) {
+    menu.addItem((item) => {
+      item
+        .setTitle('🔄 刷新')
+        .onClick(async () => {
+          const container = this.containerEl.children[1] as HTMLElement;
+          await this.refreshGallery(container);
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle('⚡ 强制刷新')
+        .onClick(async () => {
+          const container = this.containerEl.children[1] as HTMLElement;
+          // Show loading indicator
+          container.empty();
+          const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
+          loadingEl.textContent = '强制刷新中...';
+          
+          try {
+            // Force clear all caches and reload
+            this.allImages = [];
+            this.displayedImages = [];
+            this.currentPage = 0;
+            if (this.intersectionObserver) {
+              this.intersectionObserver.disconnect();
+            }
+            
+            // Reload everything
+            await this.onOpen();
+            new Notice('✅ 强制刷新完成');
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            new Notice('❌ 强制刷新失败: ' + msg);
+          }
+        });
+    });
+  }
+
+  private loadMoreImages() {
+    if (!this.galleryGrid) return;
+
+    const startIndex = this.currentPage * this.imagesPerPage;
+    const endIndex = Math.min(startIndex + this.imagesPerPage, this.allImages.length);
+
+    // Add images to displayed list
+    const newImages = this.allImages.slice(startIndex, endIndex);
+    this.displayedImages.push(...newImages);
+
+    // Create card elements for new images
+    newImages.forEach((image, index) => {
+      const card = this.galleryGrid!.createEl('div', { cls: 'gallery-card' });
+
+      // Image preview
+      const imageContainer = card.createEl('div', { cls: 'gallery-image-container' });
+      const img = imageContainer.createEl('img', { cls: 'gallery-image' });
+      img.src = image.url;
+      img.alt = image.name;
+      img.addEventListener('click', () => {
+        this.openImageDetail(image);
+      });
+
+      // Info section
+      const infoSection = card.createEl('div', { cls: 'gallery-card-info' });
+
+      // Filename with tooltip
+      const nameEl = infoSection.createEl('div', { cls: 'gallery-filename', text: image.name });
+      nameEl.title = image.name;
+
+      // Details
+      const detailsEl = infoSection.createEl('div', { cls: 'gallery-details' });
+      detailsEl.innerHTML = `
+        <div class="gallery-detail-row">
+          <span class="detail-label">大小:</span>
+          <span class="detail-value">${this.formatBytes(image.size)}</span>
+        </div>
+        <div class="gallery-detail-row">
+          <span class="detail-label">上传:</span>
+          <span class="detail-value">${this.formatDate(image.date)}</span>
+        </div>
+      `;
+
+      // Copy URL button
+      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn', text: '📋 复制链接' });
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(image.url);
+        copyBtn.textContent = '✅ 已复制';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 复制链接';
+        }, 2000);
+      });
+
+      // Add scroll trigger marker to last card of this batch
+      if (index === newImages.length - 1 && endIndex < this.allImages.length) {
+        card.setAttribute('data-load-trigger', 'true');
+      }
+    });
+
+    this.currentPage++;
+
+    // If not all images loaded, add load more trigger
+    if (endIndex < this.allImages.length) {
+      const triggerEl = this.galleryGrid.createEl('div', { cls: 'gallery-load-more-trigger' });
+      triggerEl.setAttribute('data-trigger', 'true');
+      triggerEl.textContent = '滚动加载更多...';
+    }
+  }
+
+  private setupInfiniteScroll() {
+    // Cleanup old observer
+    if (this.intersectionObserver) {
+      this.intersectionObserver.disconnect();
+    }
+
+    // Create intersection observer for infinite scroll
+    this.intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.target.getAttribute('data-trigger') === 'true') {
+            // Remove old trigger
+            entry.target.remove();
+            // Load more images
+            this.loadMoreImages();
+            // Re-setup observer for new trigger
+            this.setupInfiniteScroll();
+          }
+        });
+      },
+      {
+        rootMargin: '100px',
+      }
+    );
+
+    // Observe the trigger element
+    const trigger = this.galleryGrid?.querySelector('[data-trigger="true"]');
+    if (trigger) {
+      this.intersectionObserver.observe(trigger);
+    }
+  }
+
+  private async fetchImagesFromGitHub(): Promise<GalleryImage[]> {
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+
+    if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
+      throw new Error('GitHub 配置不完整');
+    }
+
+    const apiUrl = `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${imagePath}`;
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${gitHubToken}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return [];
+        }
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(`GitHub API ${response.status}: ${JSON.stringify(errData)}`);
+      }
+
+      const data = await response.json();
+
+      // Filter for image files and sort by date (newest first)
+      const images: GalleryImage[] = Array.isArray(data)
+        ? data
+            .filter((file: any) => this.isImageFile(file.name))
+            .map((file: any) => ({
+              name: file.name,
+              size: file.size,
+              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${imagePath}/${file.name}`,
+              date: new Date(file.created_at || file.updated_at || new Date()),
+            }))
+            .sort((a: GalleryImage, b: GalleryImage) => b.date.getTime() - a.date.getTime())
+        : [];
+
+      return images;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  private isImageFile(filename: string): boolean {
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+    const ext = filename.split('.').pop()?.toLowerCase();
+    return ext ? imageExtensions.includes(ext) : false;
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  }
+
+  private formatDate(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return '刚刚';
+    if (diffMins < 60) return `${diffMins} 分钟前`;
+    if (diffHours < 24) return `${diffHours} 小时前`;
+    if (diffDays < 30) return `${diffDays} 天前`;
+
+    return date.toLocaleDateString('zh-CN');
+  }
+
+  private getTotalSize(): number {
+    return this.allImages.reduce((sum, img) => sum + img.size, 0);
+  }
+
+  private openImageDetail(image: GalleryImage) {
+    const detailModal = new ImageDetailModal(
+      this.app, 
+      image, 
+      this.plugin,
+      () => {
+        // Remove from cache when deleted
+        this.allImages = this.allImages.filter(img => img.name !== image.name);
+        this.displayedImages = this.displayedImages.filter(img => img.name !== image.name);
+      }
+    );
+    detailModal.open();
+  }
+}
+
+/**
+ * Keep the old modal for backward compatibility, but it will show the view instead
+ */
+export class ImageGalleryModal extends Modal {
+  action: 'github' | 'local' | 'compress' | null = null;
+
+  constructor(
+    app: App,
+    private plugin: GitHubImageUploaderPlugin
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    // This modal is deprecated - we now use GalleryView instead
+    this.close();
+    // Open gallery view in a new leaf
+    this.plugin.app.workspace.getLeaf('split').setViewState({
+      type: GALLERY_VIEW_TYPE,
+      active: true,
+    });
+  }
+}
+
+/**
+ * Detailed view modal for a single image
+ */
+class ImageDetailModal extends Modal {
+  constructor(
+    app: App,
+    private image: GalleryImage,
+    private plugin: GitHubImageUploaderPlugin,
+    private onImageDeleted?: () => void
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('image-detail-modal');
+
+    // Close button
+    const closeBtn = contentEl.createEl('button', { cls: 'image-detail-close', text: '✕' });
+    closeBtn.addEventListener('click', () => this.close());
+
+    // Image display (top section)
+    const imageContainer = contentEl.createEl('div', { cls: 'image-detail-container' });
+    const img = imageContainer.createEl('img', { cls: 'image-detail-img' });
+    img.src = this.image.url;
+    img.alt = this.image.name;
+
+    // Info panel (bottom section)
+    const infoPanel = contentEl.createEl('div', { cls: 'image-detail-info' });
+
+    // Filename
+    const nameEl = infoPanel.createEl('h3', { text: this.image.name });
+
+    // Details
+    const detailsList = infoPanel.createEl('div', { cls: 'image-detail-list' });
+
+    const detailRow1 = detailsList.createEl('div', { cls: 'detail-row' });
+    detailRow1.innerHTML = `<span class="detail-label">大小:</span><span class="detail-value">${this.formatBytes(this.image.size)}</span>`;
+
+    const detailRow2 = detailsList.createEl('div', { cls: 'detail-row' });
+    detailRow2.innerHTML = `<span class="detail-label">上传:</span><span class="detail-value">${this.image.date.toLocaleString('zh-CN')}</span>`;
+
+    // Action buttons
+    const buttonGroup = infoPanel.createEl('div', { cls: 'image-detail-actions' });
+
+    const copyBtn = buttonGroup.createEl('button', { cls: 'action-btn copy-btn', text: '📋 链接' });
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(this.image.url);
+      copyBtn.textContent = '✅';
+      setTimeout(() => {
+        copyBtn.textContent = '📋 链接';
+      }, 2000);
+    });
+
+    const copyMarkdownBtn = buttonGroup.createEl('button', { cls: 'action-btn markdown-btn', text: '📝 MD' });
+    copyMarkdownBtn.addEventListener('click', () => {
+      const markdown = `![image](${this.image.url})`;
+      navigator.clipboard.writeText(markdown);
+      copyMarkdownBtn.textContent = '✅';
+      setTimeout(() => {
+        copyMarkdownBtn.textContent = '📝 MD';
+      }, 2000);
+    });
+
+    const openBtn = buttonGroup.createEl('button', { cls: 'action-btn open-btn', text: '🔗 打开' });
+    openBtn.addEventListener('click', () => {
+      window.open(this.image.url, '_blank');
+    });
+
+    const deleteBtn = buttonGroup.createEl('button', { cls: 'action-btn delete-btn', text: '🗑️ 删除' });
+    deleteBtn.addEventListener('click', async () => {
+      const confirmMessage = '确定删除此图片？';
+      if (confirm(confirmMessage)) {
+        try {
+          deleteBtn.disabled = true;
+          deleteBtn.textContent = '删中...';
+          await this.deleteImage();
+          new Notice('✅ 删除成功');
+          // Call the callback to update cache
+          if (this.onImageDeleted) {
+            this.onImageDeleted();
+          }
+          this.close();
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          new Notice('❌ 删除失败: ' + msg);
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = '🗑️ 删除';
+        }
+      }
+    });
+  }
+
+  private async deleteImage(): Promise<void> {
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+
+    if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
+      throw new Error('GitHub 配置不完整');
+    }
+
+    // Get current file SHA (needed for deletion)
+    const apiUrl = `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${imagePath}/${this.image.name}`;
+
+    try {
+      // First get the file info to get its SHA
+      const getResponse = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${gitHubToken}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+
+      if (!getResponse.ok) {
+        throw new Error(`获取文件信息失败: ${getResponse.status}`);
+      }
+
+      const fileData = await getResponse.json();
+      const sha = fileData.sha;
+
+      // Now delete the file
+      const deleteResponse = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${gitHubToken}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          message: `Delete image: ${this.image.name}`,
+          sha: sha,
+          branch: gitHubBranch,
+          committer: {
+            name: 'GitHub Image Uploader Plugin',
+            email: 'noreply@obsidian.local',
+          },
+        }),
+      });
+
+      if (!deleteResponse.ok) {
+        const errData = await deleteResponse.json().catch(() => ({}));
+        throw new Error(`GitHub API ${deleteResponse.status}: ${JSON.stringify(errData)}`);
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      throw error;
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   }
 }
 
