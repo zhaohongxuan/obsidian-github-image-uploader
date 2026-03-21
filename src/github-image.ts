@@ -238,7 +238,8 @@ export class GitHubImageHosting {
       // Insert markdown link
       const cursor = view.editor.getCursor();
       const linkPath = attachmentFolder + '/' + filename;
-      view.editor.replaceRange('![image](' + linkPath + ')\n', cursor);
+      const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
+      view.editor.replaceRange(markdownLink, cursor);
       new Notice('✅ 图片已保存到本地');
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -299,7 +300,7 @@ export class GitHubImageHosting {
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
       if (view) {
         const cursor = view.editor.getCursor();
-        const markdownLink = '![image](' + uploadUrl + ')\n';
+        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
         view.editor.replaceRange(markdownLink, cursor);
       }
 
@@ -349,7 +350,7 @@ export class GitHubImageHosting {
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
       if (view) {
         const cursor = view.editor.getCursor();
-        const markdownLink = '![image](' + uploadUrl + ')\n';
+        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
         view.editor.replaceRange(markdownLink, cursor);
       }
 
@@ -364,6 +365,16 @@ export class GitHubImageHosting {
 
   /**
    * Compress image to target size using canvas
+   * 
+   * Algorithm:
+   * 1. Load image and create canvas
+   * 2. Iteratively reduce JPEG quality until file size meets target
+   * 3. Uses initial quality and quality step from plugin settings
+   * 
+   * Performance notes:
+   * - Quality range: 0.1 (very compressed) to 1.0 (lossless)
+   * - Each iteration calls canvas.toBlob() which can be slow on mobile
+   * - Step size affects precision: smaller steps = more iterations but better size targeting
    */
   private async compressImage(file: File): Promise<Blob> {
     return new Promise((resolve, reject) => {
@@ -389,8 +400,12 @@ export class GitHubImageHosting {
           ctx.drawImage(img, 0, 0, width, height);
 
           // Iteratively reduce quality until target size is achieved
-          let quality = 0.85;
+          const initialQuality = this.plugin.settings.compressionQuality;
+          const qualityStep = this.plugin.settings.compressionQualityStep;
           const targetSize = this.plugin.settings.targetCompressedSize * 1024; // Convert KB to bytes
+          const minQuality = 0.1; // Absolute minimum to prevent over-compression
+          
+          let quality = initialQuality;
           
           const compressWithQuality = (q: number) => {
             canvas.toBlob(
@@ -400,10 +415,12 @@ export class GitHubImageHosting {
                   return;
                 }
 
-                if (blob.size <= targetSize || q <= 0.1) {
+                // Stop if file is small enough or quality is too low
+                if (blob.size <= targetSize || q <= minQuality) {
                   resolve(blob);
                 } else {
-                  quality = q - 0.05;
+                  // Reduce quality for next iteration
+                  quality = Math.max(q - qualityStep, minQuality);
                   compressWithQuality(quality);
                 }
               },
@@ -500,6 +517,17 @@ export class GitHubImageHosting {
       console.error('Upload error:', error);
       throw error;
     }
+  }
+
+  /**
+   * Generate markdown image link with optional width parameter
+   * Format: ![alt|width](url) for Obsidian syntax
+   */
+  private generateMarkdownImageLink(url: string, altText: string = 'image'): string {
+    if (this.plugin.settings.enableImageWidth && this.plugin.settings.imageWidth > 0) {
+      return '![' + altText + '|' + this.plugin.settings.imageWidth + '](' + url + ')';
+    }
+    return '![' + altText + '](' + url + ')';
   }
 
   /**
@@ -635,6 +663,7 @@ class UploadProgressModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('upload-progress-modal');
+    contentEl.style.cssText = 'display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;';
 
     // Title
     const title = contentEl.createEl('h2', { text: '上传图片' });
@@ -644,7 +673,7 @@ class UploadProgressModal extends Modal {
 
     // Status container
     this.statusEl = contentEl.createEl('div');
-    this.statusEl.style.cssText = 'text-align: center; margin-bottom: 20px;';
+    this.statusEl.style.cssText = 'text-align: center; margin-bottom: 20px; display: flex; flex-direction: column; align-items: center;';
 
     // Status icon and message
     const iconEl = this.statusEl.createEl('div');
@@ -657,7 +686,7 @@ class UploadProgressModal extends Modal {
 
     // Progress bar container
     const progressContainer = contentEl.createEl('div');
-    progressContainer.style.cssText = 'width: 100%; height: 8px; background: var(--background-secondary); border-radius: 4px; overflow: hidden; margin: 20px 0;';
+    progressContainer.style.cssText = 'width: 100%; max-width: 300px; height: 8px; background: var(--background-secondary); border-radius: 4px; overflow: hidden; margin: 20px 0;';
 
     // Progress bar
     this.progressBarEl = progressContainer.createEl('div');
@@ -668,7 +697,7 @@ class UploadProgressModal extends Modal {
 
     // Details text
     const detailsEl = contentEl.createEl('p');
-    detailsEl.style.cssText = 'font-size: 0.85em; color: var(--text-muted); text-align: center; margin: 15px 0 0 0;';
+    detailsEl.style.cssText = 'font-size: 0.85em; color: var(--text-muted); text-align: center; margin: 15px 0 0 0; max-width: 300px;';
     detailsEl.textContent = '这通常需要 5-30 秒，具体时间取决于网络连接';
   }
 

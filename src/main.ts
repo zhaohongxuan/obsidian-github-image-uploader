@@ -29,6 +29,14 @@ interface GitHubImageUploaderSettings {
   compressionThreshold: number;
   /** Target compressed size (in KB) */
   targetCompressedSize: number;
+  /** Initial JPEG quality (0.1 - 1.0) */
+  compressionQuality: number;
+  /** Compression quality step for iteration (0.01 - 0.1) */
+  compressionQualityStep: number;
+  /** Enable image width specification in markdown */
+  enableImageWidth: boolean;
+  /** Default image width in pixels (0 means auto/no width specified) */
+  imageWidth: number;
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -42,12 +50,16 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   enableImageCompression: false,
   compressionThreshold: 1,
   targetCompressedSize: 500,
+  compressionQuality: 0.85,
+  compressionQualityStep: 0.05,
+  enableImageWidth: true,
+  imageWidth: 300,
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
 
 export default class GitHubImageUploaderPlugin extends Plugin {
-  settings: GitHubImageUploaderSettings;
+  settings!: GitHubImageUploaderSettings;
 
   async onload() {
     await this.loadSettings();
@@ -234,6 +246,43 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName('初始压缩质量')
+      .setDesc('压缩时的初始 JPEG 质量系数（0.1-1.0）。较高值保持更好画质但文件更大')
+      .addSlider(slider =>
+        slider
+          .setLimits(0.1, 1, 0.05)
+          .setValue(this.plugin.settings.compressionQuality)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.compressionQuality = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // Compression preset recommendations
+    const presetContainer = containerEl.createDiv();
+    presetContainer.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
+    presetContainer.innerHTML = '<strong>快速预设：</strong><br/>' +
+      '• <strong>高质量（0.90）</strong> - 文档、艺术作品，目标 800KB<br/>' +
+      '• <strong>平衡（0.85）</strong> - 日常笔记、博客，目标 500KB<br/>' +
+      '• <strong>紧凑（0.75）</strong> - 移动网络、大量图片，目标 300KB<br/>' +
+      '• <strong>极限（0.60）</strong> - 受限网络、快速分享，目标 150KB';
+
+    new Setting(containerEl)
+      .setName('压缩质量步长')
+      .setDesc('每次迭代降低的质量幅度（0.01-0.10）。较小值压缩更精细但速度更慢')
+      .addSlider(slider =>
+        slider
+          .setLimits(0.01, 0.1, 0.01)
+          .setValue(this.plugin.settings.compressionQualityStep)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.compressionQualityStep = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
       .setName('目标压缩大小（KB）')
       .setDesc('压缩后图片的目标大小，保证不超过此值')
       .addSlider(slider =>
@@ -246,6 +295,44 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    // ── Image Display ──────────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🖼️ 图片显示' });
+
+    new Setting(containerEl)
+      .setName('启用图片宽度设置')
+      .setDesc('插入图片时自动指定宽度，使用 Obsidian 的图片缩放语法（![image|宽度](url)）')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableImageWidth)
+          .onChange(async value => {
+            this.plugin.settings.enableImageWidth = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('默认图片宽度（像素）')
+      .setDesc('插入图片时的默认宽度。设置为 0 则不指定宽度')
+      .addSlider(slider =>
+        slider
+          .setLimits(0, 800, 50)
+          .setValue(this.plugin.settings.imageWidth)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.imageWidth = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // Info box for Obsidian image syntax
+    const imageWidthInfo = containerEl.createDiv();
+    imageWidthInfo.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
+    imageWidthInfo.innerHTML = '<strong>📌 Obsidian 图片语法：</strong><br/>' +
+      '• <code>![image|300](url)</code> - 指定宽度 300px<br/>' +
+      '• <code>![image|300x200](url)</code> - 指定宽度 300px 和高度 200px<br/>' +
+      '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
+      '<br/><strong>💡 建议：</strong>通常只需指定宽度，高度会按比例自动调整';
 
     // ── Info Section ───────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: '📖 使用说明' });
