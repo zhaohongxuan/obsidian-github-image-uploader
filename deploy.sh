@@ -14,8 +14,9 @@ NC='\033[0m' # No Color
 
 # 配置
 PLUGIN_NAME="github-image-uploader"
-VAULT_PATH="${VAULT_PATH:-$HOME/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/xuan}"
-PLUGIN_DIR="$VAULT_PATH/.obsidian/plugins/$PLUGIN_NAME"
+# 使用 iCloud Drive 路径，自动处理空格
+VAULT_BASE="${VAULT_PATH:-$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan}"
+PLUGIN_DIR="$VAULT_BASE/.obsidian/plugins/$PLUGIN_NAME"
 
 # 函数定义
 log_info() {
@@ -49,7 +50,7 @@ GitHub Image Uploader - Deploy Script
   help               显示此帮助信息
 
 环境变量:
-  VAULT_PATH         Obsidian Vault 路径（默认: $VAULT_PATH）
+  VAULT_PATH         Obsidian Vault 路径（默认: $VAULT_BASE）
 
 示例:
   ./deploy.sh build              # 构建项目
@@ -131,7 +132,15 @@ sync_files() {
     
     # 显示文件列表
     log_info "已同步的文件:"
-    ls -lh "$PLUGIN_DIR"/{main.js,manifest.json,styles.css} 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
+    if [ -f "$PLUGIN_DIR/main.js" ]; then
+        echo "  ✓ main.js"
+    fi
+    if [ -f "$PLUGIN_DIR/manifest.json" ]; then
+        echo "  ✓ manifest.json"
+    fi
+    if [ -f "$PLUGIN_DIR/styles.css" ]; then
+        echo "  ✓ styles.css"
+    fi
 }
 
 # 开发模式

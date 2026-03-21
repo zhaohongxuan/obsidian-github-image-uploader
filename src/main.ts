@@ -23,6 +23,12 @@ interface GitHubImageUploaderSettings {
   gitHubBranch: string;
   /** Local folder to save images when not uploading to GitHub */
   localFolder: string;
+  /** Enable image compression */
+  enableImageCompression: boolean;
+  /** Image size threshold for compression (in MB) */
+  compressionThreshold: number;
+  /** Target compressed size (in KB) */
+  targetCompressedSize: number;
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -33,6 +39,9 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   imagePath: 'assets/images',
   gitHubBranch: 'main',
   localFolder: 'assets',
+  enableImageCompression: false,
+  compressionThreshold: 1,
+  targetCompressedSize: 500,
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
@@ -191,6 +200,49 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.localFolder)
           .onChange(async value => {
             this.plugin.settings.localFolder = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // ── Image Compression ──────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🗜️ 图片压缩' });
+
+    new Setting(containerEl)
+      .setName('启用图片压缩')
+      .setDesc('自动压缩超过设定大小的图片')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableImageCompression)
+          .onChange(async value => {
+            this.plugin.settings.enableImageCompression = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('压缩阈值（MB）')
+      .setDesc('超过此大小的图片会被压缩或在预览框中显示压缩选项')
+      .addSlider(slider =>
+        slider
+          .setLimits(0.1, 10, 0.1)
+          .setValue(this.plugin.settings.compressionThreshold)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.compressionThreshold = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('目标压缩大小（KB）')
+      .setDesc('压缩后图片的目标大小，保证不超过此值')
+      .addSlider(slider =>
+        slider
+          .setLimits(100, 1000, 50)
+          .setValue(this.plugin.settings.targetCompressedSize)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.targetCompressedSize = value;
             await this.plugin.saveSettings();
           }),
       );
