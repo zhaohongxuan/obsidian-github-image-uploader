@@ -769,11 +769,10 @@ export class GalleryView extends ItemView {
   private plugin: GitHubImageUploaderPlugin;
   private allImages: GalleryImage[] = [];
   private displayedImages: GalleryImage[] = [];
-  private imagesPerPage = 30;
+  private imagesPerPage = 10; // Changed from 30 to 10
   private currentPage = 0;
   private galleryGrid: HTMLElement | null = null;
-  private intersectionObserver: IntersectionObserver | null = null;
-  private isLoadingImages = true;
+  private loadMoreBtn: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: GitHubImageUploaderPlugin) {
     super(leaf);
@@ -797,140 +796,84 @@ export class GalleryView extends ItemView {
     container.empty();
     container.addClass('gallery-view-container');
 
-    // Create header with title and refresh button
     const header = container.createEl('div', { cls: 'gallery-view-header' });
-    
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-    const title = titleContainer.createEl('h2', { text: '📸 图片库' });
-    title.style.margin = '0';
+    titleContainer.createEl('h2', { text: '📸 图片库' });
     
     const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
     refreshBtn.title = '刷新图片库';
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
-      refreshBtn.textContent = '⏳';
       try {
-        await this.refreshGallery(container);
+        await this.refreshGallery();
       } finally {
         refreshBtn.disabled = false;
-        refreshBtn.textContent = '🔄';
       }
     });
 
-    // Loading state
-    const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
-    loadingEl.textContent = '加载中...';
+    const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '加载中...' });
 
     try {
-      // Fetch all images from GitHub
       this.allImages = await this.fetchImagesFromGitHub();
-
-      // Clear loading
-      container.empty();
-      container.appendChild(header);
+      loadingEl.remove();
 
       if (this.allImages.length === 0) {
-        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
-        emptyEl.innerHTML = '<p style="text-align: center; color: var(--text-muted); margin-top: 40px;">📭 还没有上传过图片</p>';
+        container.createEl('div', { cls: 'gallery-empty', text: '📭 还没有上传过图片' });
         return;
       }
 
-      // Info bar
       const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
       infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
 
-      // Gallery grid
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
-
-      // Load initial batch
       this.loadMoreImages();
 
-      // Setup intersection observer for infinite scroll
-      this.setupInfiniteScroll();
     } catch (error) {
-      container.empty();
-      container.appendChild(header);
+      loadingEl.remove();
       const errorEl = container.createEl('div', { cls: 'gallery-error' });
       const msg = error instanceof Error ? error.message : String(error);
-      errorEl.innerHTML = `<p style="color: var(--text-error);">❌ 加载失败: ${msg}</p><p style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">请检查 GitHub 配置和网络连接</p>`;
+      errorEl.innerHTML = `<p>❌ 加载失败: ${msg}</p><p>请检查 GitHub 配置和网络连接</p>`;
     }
   }
 
-  private async refreshGallery(container: HTMLElement) {
+  private async refreshGallery() {
+    // Reset state and UI
+    this.allImages = [];
+    this.displayedImages = [];
+    this.currentPage = 0;
+    const container = this.containerEl.children[1] as HTMLElement;
+    
+    // Clear everything except header
+    const header = container.querySelector('.gallery-view-header');
+    container.empty();
+    if (header) container.appendChild(header);
+
+    const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '刷新中...' });
+
     try {
-      // Reset state
-      this.allImages = [];
-      this.displayedImages = [];
-      this.currentPage = 0;
-      
-      // Clear container
-      container.empty();
-      
-      // Create header again
-      const header = container.createEl('div', { cls: 'gallery-view-header' });
-      const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-      const title = titleContainer.createEl('h2', { text: '📸 图片库' });
-      title.style.margin = '0';
-      
-      const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
-      refreshBtn.title = '刷新图片库';
-      refreshBtn.addEventListener('click', async () => {
-        refreshBtn.disabled = true;
-        refreshBtn.textContent = '⏳';
-        try {
-          await this.refreshGallery(container);
-        } finally {
-          refreshBtn.disabled = false;
-          refreshBtn.textContent = '🔄';
-        }
-      });
-
-      // Loading state
-      const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
-      loadingEl.textContent = '刷新中...';
-
-      // Fetch all images from GitHub
       this.allImages = await this.fetchImagesFromGitHub();
-
-      // Clear loading
-      container.empty();
-      container.appendChild(header);
+      loadingEl.remove();
 
       if (this.allImages.length === 0) {
-        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
-        emptyEl.innerHTML = '<p style="text-align: center; color: var(--text-muted); margin-top: 40px;">📭 还没有上传过图片</p>';
+        container.createEl('div', { cls: 'gallery-empty', text: '📭 还没有上传过图片' });
         return;
       }
 
-      // Info bar
       const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
       infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
 
-      // Gallery grid
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
-
-      // Load initial batch
       this.loadMoreImages();
-
-      // Setup intersection observer for infinite scroll
-      this.setupInfiniteScroll();
     } catch (error) {
-      container.empty();
-      const header = container.createEl('div', { cls: 'gallery-view-header' });
-      const title = header.createEl('h2', { text: '📸 图片库' });
-      title.style.margin = '0';
-      
+      loadingEl.remove();
       const errorEl = container.createEl('div', { cls: 'gallery-error' });
       const msg = error instanceof Error ? error.message : String(error);
-      errorEl.innerHTML = `<p style="color: var(--text-error);">❌ 刷新失败: ${msg}</p><p style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">请检查 GitHub 配置和网络连接</p>`;
+      errorEl.innerHTML = `<p>❌ 刷新失败: ${msg}</p>`;
     }
   }
 
   async onClose() {
-    // Cleanup observer
-    if (this.intersectionObserver) {
-      this.intersectionObserver.disconnect();
-    }
+    // Cleanup if needed
   }
 
   onHeaderMenu(menu: Menu) {
@@ -938,8 +881,7 @@ export class GalleryView extends ItemView {
       item
         .setTitle('🔄 刷新')
         .onClick(async () => {
-          const container = this.containerEl.children[1] as HTMLElement;
-          await this.refreshGallery(container);
+          await this.refreshGallery();
         });
     });
 
@@ -948,21 +890,14 @@ export class GalleryView extends ItemView {
         .setTitle('⚡ 强制刷新')
         .onClick(async () => {
           const container = this.containerEl.children[1] as HTMLElement;
-          // Show loading indicator
           container.empty();
           const loadingEl = container.createEl('div', { cls: 'gallery-loading' });
           loadingEl.textContent = '强制刷新中...';
           
           try {
-            // Force clear all caches and reload
             this.allImages = [];
             this.displayedImages = [];
             this.currentPage = 0;
-            if (this.intersectionObserver) {
-              this.intersectionObserver.disconnect();
-            }
-            
-            // Reload everything
             await this.onOpen();
             new Notice('✅ 强制刷新完成');
           } catch (error) {
@@ -976,102 +911,63 @@ export class GalleryView extends ItemView {
   private loadMoreImages() {
     if (!this.galleryGrid) return;
 
-    const startIndex = this.currentPage * this.imagesPerPage;
-    const endIndex = Math.min(startIndex + this.imagesPerPage, this.allImages.length);
+    // Remove existing button before adding new images
+    if (this.loadMoreBtn) {
+      this.loadMoreBtn.remove();
+      this.loadMoreBtn = null;
+    }
 
-    // Add images to displayed list
+    const startIndex = this.currentPage * this.imagesPerPage;
+    const endIndex = startIndex + this.imagesPerPage;
     const newImages = this.allImages.slice(startIndex, endIndex);
+
     this.displayedImages.push(...newImages);
 
-    // Create card elements for new images
-    newImages.forEach((image, index) => {
-      const card = this.galleryGrid!.createEl('div', { cls: 'gallery-card' });
-
-      // Image preview
-      const imageContainer = card.createEl('div', { cls: 'gallery-image-container' });
-      const img = imageContainer.createEl('img', { cls: 'gallery-image' });
-      img.src = image.url;
-      img.alt = image.name;
-      img.addEventListener('click', () => {
-        this.openImageDetail(image);
-      });
-
-      // Info section
-      const infoSection = card.createEl('div', { cls: 'gallery-card-info' });
-
-      // Filename with tooltip
-      const nameEl = infoSection.createEl('div', { cls: 'gallery-filename', text: image.name });
-      nameEl.title = image.name;
-
-      // Details
-      const detailsEl = infoSection.createEl('div', { cls: 'gallery-details' });
-      detailsEl.innerHTML = `
-        <div class="gallery-detail-row">
-          <span class="detail-label">大小:</span>
-          <span class="detail-value">${this.formatBytes(image.size)}</span>
-        </div>
-        <div class="gallery-detail-row">
-          <span class="detail-label">上传:</span>
-          <span class="detail-value">${this.formatDate(image.date)}</span>
-        </div>
-      `;
-
-      // Copy URL button
-      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn', text: '📋 复制链接' });
-      copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(image.url);
-        copyBtn.textContent = '✅ 已复制';
-        setTimeout(() => {
-          copyBtn.textContent = '📋 复制链接';
-        }, 2000);
-      });
-
-      // Add scroll trigger marker to last card of this batch
-      if (index === newImages.length - 1 && endIndex < this.allImages.length) {
-        card.setAttribute('data-load-trigger', 'true');
-      }
+    newImages.forEach(image => {
+      this.createImageCard(image);
     });
 
     this.currentPage++;
 
-    // If not all images loaded, add load more trigger
+    // If there are more images, create a new "Load More" button
     if (endIndex < this.allImages.length) {
-      const triggerEl = this.galleryGrid.createEl('div', { cls: 'gallery-load-more-trigger' });
-      triggerEl.setAttribute('data-trigger', 'true');
-      triggerEl.textContent = '滚动加载更多...';
+      this.loadMoreBtn = this.galleryGrid.createEl('div', { cls: 'gallery-load-more-trigger' });
+      const button = this.loadMoreBtn.createEl('button', { text: `加载更多 (${endIndex}/${this.allImages.length})`});
+      button.addEventListener('click', () => {
+        button.textContent = '加载中...';
+        button.disabled = true;
+        // Timeout to allow UI to update
+        setTimeout(() => this.loadMoreImages(), 100);
+      });
     }
   }
+  
+  private createImageCard(image: GalleryImage) {
+      if (!this.galleryGrid) return;
+      
+      const card = this.galleryGrid!.createEl('div', { cls: 'gallery-card' });
 
-  private setupInfiniteScroll() {
-    // Cleanup old observer
-    if (this.intersectionObserver) {
-      this.intersectionObserver.disconnect();
-    }
+      const imageContainer = card.createEl('div', { cls: 'gallery-image-container' });
+      const img = imageContainer.createEl('img', { cls: 'gallery-image' });
+      img.src = image.url;
+      img.alt = image.name;
+      img.addEventListener('click', () => this.openImageDetail(image));
 
-    // Create intersection observer for infinite scroll
-    this.intersectionObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.target.getAttribute('data-trigger') === 'true') {
-            // Remove old trigger
-            entry.target.remove();
-            // Load more images
-            this.loadMoreImages();
-            // Re-setup observer for new trigger
-            this.setupInfiniteScroll();
-          }
-        });
-      },
-      {
-        rootMargin: '100px',
-      }
-    );
+      const infoSection = card.createEl('div', { cls: 'gallery-card-info' });
+      const nameEl = infoSection.createEl('div', { cls: 'gallery-filename', text: image.name });
+      nameEl.title = image.name;
 
-    // Observe the trigger element
-    const trigger = this.galleryGrid?.querySelector('[data-trigger="true"]');
-    if (trigger) {
-      this.intersectionObserver.observe(trigger);
-    }
+      const detailsEl = infoSection.createEl('div', { cls: 'gallery-details' });
+      detailsEl.innerHTML = `
+        <div class="gallery-detail-row"><span class="detail-label">大小:</span><span class="detail-value">${this.formatBytes(image.size)}</span></div>
+        <div class="gallery-detail-row"><span class="detail-label">上传:</span><span class="detail-value">${this.formatDate(image.date)}</span></div>
+      `;
+
+      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn', text: '📋 复制链接' });
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(image.url);
+        new Notice('✅ 已复制到剪贴板');
+      });
   }
 
   private async fetchImagesFromGitHub(): Promise<GalleryImage[]> {
@@ -1094,30 +990,26 @@ export class GalleryView extends ItemView {
       });
 
       if (!response.ok) {
-        if (response.status === 404) {
-          return [];
-        }
+        if (response.status === 404) return [];
         const errData = await response.json().catch(() => ({}));
         throw new Error(`GitHub API ${response.status}: ${JSON.stringify(errData)}`);
       }
 
       const data = await response.json();
 
-      // Filter for image files and sort by date (newest first)
-      const images: GalleryImage[] = Array.isArray(data)
+      return Array.isArray(data)
         ? data
             .filter((file: any) => this.isImageFile(file.name))
             .map((file: any) => ({
               name: file.name,
               size: file.size,
-              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${imagePath}/${file.name}`,
-              date: new Date(file.created_at || file.updated_at || new Date()),
+              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${imagePath.replace(/\/$/, '')}/${file.name}`,
+              date: new Date(file.created_at || file.updated_at || Date.now()),
             }))
-            .sort((a: GalleryImage, b: GalleryImage) => b.date.getTime() - a.date.getTime())
+            .sort((a, b) => b.date.getTime() - a.date.getTime())
         : [];
-
-      return images;
     } catch (error) {
+      console.error("Error fetching images from GitHub:", error);
       throw error;
     }
   }
@@ -1133,21 +1025,15 @@ export class GalleryView extends ItemView {
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   }
 
   private formatDate(date: Date): string {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return '刚刚';
-    if (diffMins < 60) return `${diffMins} 分钟前`;
-    if (diffHours < 24) return `${diffHours} 小时前`;
-    if (diffDays < 30) return `${diffDays} 天前`;
-
+    if (diffDays < 1) return date.toLocaleTimeString('zh-CN');
+    if (diffDays < 365) return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     return date.toLocaleDateString('zh-CN');
   }
 
@@ -1156,17 +1042,10 @@ export class GalleryView extends ItemView {
   }
 
   private openImageDetail(image: GalleryImage) {
-    const detailModal = new ImageDetailModal(
-      this.app, 
-      image, 
-      this.plugin,
-      () => {
-        // Remove from cache when deleted
-        this.allImages = this.allImages.filter(img => img.name !== image.name);
-        this.displayedImages = this.displayedImages.filter(img => img.name !== image.name);
-      }
-    );
-    detailModal.open();
+    new ImageDetailModal(this.app, image, this.plugin, () => {
+      // Refresh gallery after deletion
+      this.refreshGallery();
+    }).open();
   }
 }
 
