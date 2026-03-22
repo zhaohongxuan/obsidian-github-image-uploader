@@ -1208,13 +1208,17 @@ class ImageDetailModal extends Modal {
   }
 
   onOpen() {
-    const { contentEl } = this;
+    const { contentEl, modalEl } = this;
     contentEl.empty();
     contentEl.addClass('image-detail-modal');
+    modalEl.addClass('image-detail-overall-modal');
 
-    // Close button
-    const closeBtn = contentEl.createEl('button', { cls: 'image-detail-close', text: '✕' });
-    closeBtn.addEventListener('click', () => this.close());
+    // Directly set the modal width to override Obsidian's defaults
+    modalEl.style.width = '800px';
+    modalEl.style.maxWidth = '95vw';
+    // Removed height adjustment. Modal height will now revert to Obsidian's default behavior.
+
+    // Original custom close button removed. Rely on native Obsidian close button.
 
     // Image display (top section)
     const imageContainer = contentEl.createEl('div', { cls: 'image-detail-container' });
