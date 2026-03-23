@@ -777,6 +777,19 @@ export class GalleryView extends ItemView {
   constructor(leaf: WorkspaceLeaf, plugin: GitHubImageUploaderPlugin) {
     super(leaf);
     this.plugin = plugin;
+
+    // 在 tab header 菜单中添加“刷新”按钮（兼容 Obsidian 1.4+，onHeaderMenu 只在 tab header ... 菜单中生效）
+    this.onHeaderMenu = (menu: Menu) => {
+      menu.addItem((item) => {
+        item.setTitle('🔄 刷新')
+          .setIcon('refresh-cw')
+          .onClick(async () => {
+            await this.refreshGallery();
+            new Notice('已刷新');
+          });
+      });
+    };
+
   }
 
   getViewType(): string {
@@ -784,7 +797,7 @@ export class GalleryView extends ItemView {
   }
 
   getDisplayText(): string {
-    return '📸 图片库';
+    return 'Github图片库';
   }
 
   getIcon(): string {
@@ -798,10 +811,10 @@ export class GalleryView extends ItemView {
 
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-    titleContainer.createEl('h2', { text: '📸 图片库' });
+    titleContainer.createEl('h2', { text: 'Github图片库' });
     
     const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
-    refreshBtn.title = '刷新图片库';
+    refreshBtn.title = '刷新Github图片库';
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
       try {
