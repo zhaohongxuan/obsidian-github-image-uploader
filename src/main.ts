@@ -38,6 +38,8 @@ interface GitHubImageUploaderSettings {
   enableImageWidth: boolean;
   /** Default image width in pixels (0 means auto/no width specified) */
   imageWidth: number;
+  /** Custom CDN URL (e.g., https://cdn.jsdelivr.net/gh/username/repo@branch/path) */
+  cdnUrl: string;
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -55,6 +57,7 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   compressionQualityStep: 0.05,
   enableImageWidth: true,
   imageWidth: 300,
+  cdnUrl: '',
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
@@ -230,6 +233,22 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.gitHubBranch)
           .onChange(async value => {
             this.plugin.settings.gitHubBranch = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // ── CDN 设置 ──────────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🌐 CDN 设置' });
+
+    new Setting(containerEl)
+      .setName('CDN 地址')
+      .setDesc('使用 CDN 加速图片访问，如 jsDelivr、GitHub Raw 等。留空则使用默认 Raw 链接。格式: https://cdn.jsdelivr.net/gh/用户名/仓库@分支/路径/')
+      .addText(text =>
+        text
+          .setPlaceholder('https://cdn.jsdelivr.net/gh/username/repo@main/assets/images')
+          .setValue(this.plugin.settings.cdnUrl)
+          .onChange(async value => {
+            this.plugin.settings.cdnUrl = value;
             await this.plugin.saveSettings();
           }),
       );

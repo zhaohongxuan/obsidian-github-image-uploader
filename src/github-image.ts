@@ -515,13 +515,25 @@ export class GitHubImageHosting {
       }
 
       const data = await response.json();
-      // Construct raw GitHub URL directly
-      const rawUrl = 'https://raw.githubusercontent.com/' + 
-        options.owner + '/' + 
-        options.repo + '/' + 
-        options.branch + '/' + 
-        path;
-      return rawUrl;
+      // Construct URL - use CDN if configured, otherwise use raw GitHub URL
+      let imageUrl: string;
+      const cdnUrl = this.plugin.settings.cdnUrl?.trim();
+      
+      if (cdnUrl) {
+        // CDN URL is configured, replace the path in CDN URL
+        // CDN URL format: https://cdn.jsdelivr.net/gh/user/repo@branch/path/
+        // We need to construct the full path and append it to CDN base
+        imageUrl = cdnUrl.endsWith('/') ? cdnUrl : cdnUrl + '/';
+        imageUrl += path;
+      } else {
+        // Use default raw GitHub URL
+        imageUrl = 'https://raw.githubusercontent.com/' + 
+          options.owner + '/' + 
+          options.repo + '/' + 
+          options.branch + '/' + 
+          path;
+      }
+      return imageUrl;
     } catch (error) {
       // Ensure memory is freed by clearing the base64 content
       console.error('Upload error:', error);
@@ -1013,12 +1025,25 @@ export class GalleryView extends ItemView {
       return Array.isArray(data)
         ? data
             .filter((file: any) => this.isImageFile(file.name))
-            .map((file: any) => ({
-              name: file.name,
-              size: file.size,
-              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${imagePath.replace(/\/$/, '')}/${file.name}`,
-              date: new Date(file.created_at || file.updated_at || Date.now()),
-            }))
+            .map((file: any) => {
+              const filePath = (imagePath.replace(/\/$/, '') + '/' + file.name).replace(/^\//, '');
+              let imageUrl: string;
+              const cdnUrl = this.plugin.settings.cdnUrl?.trim();
+              
+              if (cdnUrl) {
+                imageUrl = cdnUrl.endsWith('/') ? cdnUrl : cdnUrl + '/';
+                imageUrl += filePath;
+              } else {
+                imageUrl = `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
+              }
+              
+              return {
+                name: file.name,
+                size: file.size,
+                url: imageUrl,
+                date: new Date(file.created_at || file.updated_at || Date.now()),
+              };
+            })
             .sort((a, b) => b.date.getTime() - a.date.getTime())
         : [];
     } catch (error) {
