@@ -38,8 +38,10 @@ interface GitHubImageUploaderSettings {
   enableImageWidth: boolean;
   /** Default image width in pixels (0 means auto/no width specified) */
   imageWidth: number;
-  /** Custom CDN URL (e.g., https://cdn.jsdelivr.net/gh/username/repo@branch/path) */
-  cdnUrl: string;
+  /** CDN provider type */
+  cdnProvider: 'none' | 'jsdelivr' | 'fastgit' | 'statically' | 'custom';
+  /** Custom CDN prefix (only used when cdnProvider is 'custom') */
+  cdnCustomPrefix: string;
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -57,7 +59,8 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   compressionQualityStep: 0.05,
   enableImageWidth: true,
   imageWidth: 300,
-  cdnUrl: '',
+  cdnProvider: 'none',
+  cdnCustomPrefix: '',
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
@@ -241,17 +244,39 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
     containerEl.createEl('h3', { text: '🌐 CDN 设置' });
 
     new Setting(containerEl)
-      .setName('CDN 地址')
-      .setDesc('使用 CDN 加速图片访问，如 jsDelivr、GitHub Raw 等。留空则使用默认 Raw 链接。格式: https://cdn.jsdelivr.net/gh/用户名/仓库@分支/路径/')
-      .addText(text =>
-        text
-          .setPlaceholder('https://cdn.jsdelivr.net/gh/username/repo@main/assets/images')
-          .setValue(this.plugin.settings.cdnUrl)
-          .onChange(async value => {
-            this.plugin.settings.cdnUrl = value;
+      .setName('CDN 提供商')
+      .setDesc('选择 CDN 服务商，自动拼接 URL。留空则使用默认 Raw 链接')
+      .addDropdown(dropdown =>
+        dropdown
+          .addOption('none', '不使用 CDN（默认 Raw 链接）')
+          .addOption('jsdelivr', 'jsDelivr（推荐，免费快速）')
+          .addOption('fastgit', 'FastGit（海外加速）')
+          .addOption('statically', 'Statically（免费 CDN）')
+          .addOption('custom', '自定义前缀')
+          .setValue(this.plugin.settings.cdnProvider)
+          .onChange(async (value) => {
+            this.plugin.settings.cdnProvider = value as any;
             await this.plugin.saveSettings();
+            // Refresh settings tab to show/hide custom prefix option
+            (this as any).display();
           }),
       );
+
+    // Only show custom prefix when 'custom' is selected
+    if (this.plugin.settings.cdnProvider === 'custom') {
+      new Setting(containerEl)
+        .setName('自定义 CDN 前缀')
+        .setDesc('填写自定义 CDN 前缀，会自动拼接。示例: https://cdn.example.com/gh/user/repo@main/assets/')
+        .addText(text =>
+          text
+            .setPlaceholder('https://cdn.example.com/gh/user/repo@main/assets/')
+            .setValue(this.plugin.settings.cdnCustomPrefix)
+            .onChange(async value => {
+              this.plugin.settings.cdnCustomPrefix = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
 
     // ── Local Storage ──────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: '💾 本地存储' });

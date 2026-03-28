@@ -22,6 +22,37 @@ export class GitHubImageHosting {
   ) {}
 
   /**
+   * Build CDN URL from path based on settings
+   */
+  private buildCdnUrl(filePath: string): string {
+    const { cdnProvider, cdnCustomPrefix, gitHubOwner, gitHubRepo, gitHubBranch, imagePath } = this.plugin.settings;
+    
+    // If CDN is disabled, use raw GitHub URL
+    if (cdnProvider === 'none' || !cdnProvider) {
+      return `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
+    }
+    
+    // Build base path for CDN
+    const basePath = (imagePath.replace(/\/$/, '') + '/' + filePath).replace(/^\//, '');
+    
+    switch (cdnProvider) {
+      case 'jsdelivr':
+        return `https://cdn.jsdelivr.net/gh/${gitHubOwner}/${gitHubRepo}@${gitHubBranch}/${basePath}`;
+      case 'fastgit':
+        return `https://cdn.fastgit.org/gh/${gitHubOwner}/${gitHubRepo}/-/raw/${gitHubBranch}/${basePath}`;
+      case 'statically':
+        return `https://cdn.statically.io/gh/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${basePath}`;
+      case 'custom':
+        const prefix = cdnCustomPrefix.endsWith('/') ? cdnCustomPrefix : cdnCustomPrefix + '/';
+        return prefix + basePath;
+      default:
+        return `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
+    }
+  }
+
+
+
+  /**
    * Register paste event listener and file upload interceptor
    */
   register() {
@@ -517,22 +548,7 @@ export class GitHubImageHosting {
       const data = await response.json();
       // Construct URL - use CDN if configured, otherwise use raw GitHub URL
       let imageUrl: string;
-      const cdnUrl = this.plugin.settings.cdnUrl?.trim();
-      
-      if (cdnUrl) {
-        // CDN URL is configured, replace the path in CDN URL
-        // CDN URL format: https://cdn.jsdelivr.net/gh/user/repo@branch/path/
-        // We need to construct the full path and append it to CDN base
-        imageUrl = cdnUrl.endsWith('/') ? cdnUrl : cdnUrl + '/';
-        imageUrl += path;
-      } else {
-        // Use default raw GitHub URL
-        imageUrl = 'https://raw.githubusercontent.com/' + 
-          options.owner + '/' + 
-          options.repo + '/' + 
-          options.branch + '/' + 
-          path;
-      }
+      imageUrl = this.buildCdnUrl(path);
       return imageUrl;
     } catch (error) {
       // Ensure memory is freed by clearing the base64 content
@@ -804,6 +820,32 @@ export class GalleryView extends ItemView {
 
   }
 
+  /**
+   * Build CDN URL from path based on settings
+   */
+  private buildCdnUrl(filePath: string): string {
+    const { cdnProvider, cdnCustomPrefix, gitHubOwner, gitHubRepo, gitHubBranch, imagePath } = this.plugin.settings;
+    
+    if (cdnProvider === 'none' || !cdnProvider) {
+      return `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
+    }
+    
+    const basePath = (imagePath.replace(/\/$/, '') + '/' + filePath).replace(/^\//, '');
+    switch (cdnProvider) {
+      case 'jsdelivr':
+        return `https://cdn.jsdelivr.net/gh/${gitHubOwner}/${gitHubRepo}@${gitHubBranch}/${basePath}`;
+      case 'fastgit':
+        return `https://cdn.fastgit.org/gh/${gitHubOwner}/${gitHubRepo}/-/raw/${gitHubBranch}/${basePath}`;
+      case 'statically':
+        return `https://cdn.statically.io/gh/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${basePath}`;
+      case 'custom':
+        const prefix = cdnCustomPrefix.endsWith('/') ? cdnCustomPrefix : cdnCustomPrefix + '/';
+        return prefix + basePath;
+      default:
+        return `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
+    }
+  }
+
   getViewType(): string {
     return GALLERY_VIEW_TYPE;
   }
@@ -1028,14 +1070,7 @@ export class GalleryView extends ItemView {
             .map((file: any) => {
               const filePath = (imagePath.replace(/\/$/, '') + '/' + file.name).replace(/^\//, '');
               let imageUrl: string;
-              const cdnUrl = this.plugin.settings.cdnUrl?.trim();
-              
-              if (cdnUrl) {
-                imageUrl = cdnUrl.endsWith('/') ? cdnUrl : cdnUrl + '/';
-                imageUrl += filePath;
-              } else {
-                imageUrl = `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${filePath}`;
-              }
+              imageUrl = this.buildCdnUrl(filePath);
               
               return {
                 name: file.name,
