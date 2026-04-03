@@ -1201,7 +1201,9 @@ class ImageDetailModal extends Modal {
       if (confirm(confirmMessage)) {
         try {
           deleteBtn.disabled = true;
-          deleteBtn.textContent = '删中...';
+          deleteBtn.empty();
+          setIcon(deleteBtn, 'loader');
+          deleteBtn.appendText(' 删除中...');
           await this.deleteImage();
           new Notice('删除成功');
           // Call the callback to update cache
