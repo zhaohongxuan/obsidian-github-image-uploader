@@ -4,6 +4,7 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
+  setIcon,
 } from 'obsidian';
 import { GitHubImageHosting, ImageGalleryModal, GALLERY_VIEW_TYPE, GalleryView } from './github-image';
 
@@ -140,7 +141,9 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'GitHub Image Uploader' });
 
     // ── Main Toggle ────────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '🖼️ 基本设置' });
+    const basicSettingsH3 = containerEl.createEl('h3');
+    setIcon(basicSettingsH3, 'image');
+    basicSettingsH3.appendText(' 基本设置');
 
     new Setting(containerEl)
       .setName('启用 GitHub 图床')
@@ -155,7 +158,9 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       );
 
     // ── GitHub Configuration ────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '🔐 GitHub 配置' });
+    const githubConfigH3 = containerEl.createEl('h3');
+    setIcon(githubConfigH3, 'lock');
+    githubConfigH3.appendText(' GitHub 配置');
 
     new Setting(containerEl)
       .setName('GitHub Token')
@@ -235,7 +240,9 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       );
 
     // ── Local Storage ──────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '💾 本地存储' });
+    const localStorageH3 = containerEl.createEl('h3');
+    setIcon(localStorageH3, 'hard-drive');
+    localStorageH3.appendText(' 本地存储');
 
     new Setting(containerEl)
       .setName('本地图片文件夹')
@@ -251,7 +258,9 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       );
 
     // ── Image Compression ──────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '🗜️ 图片压缩' });
+    const compressionH3 = containerEl.createEl('h3');
+    setIcon(compressionH3, 'archive');
+    compressionH3.appendText(' 图片压缩');
 
     new Setting(containerEl)
       .setName('启用图片压缩')
@@ -331,7 +340,9 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       );
 
     // ── Image Display ──────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '🖼️ 图片显示' });
+    const imageDisplayH3 = containerEl.createEl('h3');
+    setIcon(imageDisplayH3, 'image');
+    imageDisplayH3.appendText(' 图片显示');
 
     new Setting(containerEl)
       .setName('启用图片宽度设置')
@@ -362,14 +373,16 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
     // Info box for Obsidian image syntax
     const imageWidthInfo = containerEl.createDiv();
     imageWidthInfo.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
-    imageWidthInfo.innerHTML = '<strong>📌 Obsidian 图片语法：</strong><br/>' +
+    imageWidthInfo.innerHTML = '<strong>Obsidian 图片语法：</strong><br/>' +
       '• <code>![image|300](url)</code> - 指定宽度 300px<br/>' +
       '• <code>![image|300x200](url)</code> - 指定宽度 300px 和高度 200px<br/>' +
       '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
-      '<br/><strong>💡 建议：</strong>通常只需指定宽度，高度会按比例自动调整';
+      '<br/><strong>建议：</strong>通常只需指定宽度，高度会按比例自动调整';
 
     // ── Info Section ───────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '📖 使用说明' });
+    const infoH3 = containerEl.createEl('h3');
+    setIcon(infoH3, 'book-open');
+    infoH3.appendText(' 使用说明');
 
     const infoEl = containerEl.createDiv();
     infoEl.style.cssText = 'background: var(--background-secondary); padding: 16px; border-radius: 8px; margin-top: 12px; font-size: 0.95em; line-height: 1.6;';

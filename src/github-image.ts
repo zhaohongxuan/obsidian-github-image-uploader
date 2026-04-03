@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu } from 'obsidian';
+import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, setIcon } from 'obsidian';
 import type GitHubImageUploaderPlugin from './main';
 
 /**
@@ -118,7 +118,7 @@ export class GitHubImageHosting {
         const maxSize = isMobile ? MAX_MOBILE_SIZE : MAX_FILE_SIZE;
         
         if (file.size > maxSize) {
-          new Notice(`❌ 文件过大 (${(file.size / 1024 / 1024).toFixed(1)}MB)，${isMobile ? '移动端' : ''}限制为 ${(maxSize / 1024 / 1024).toFixed(0)}MB`);
+          new Notice(`文件过大 (${(file.size / 1024 / 1024).toFixed(1)}MB)，${isMobile ? '移动端' : ''}限制为 ${(maxSize / 1024 / 1024).toFixed(0)}MB`);
           return;
         }
         
@@ -153,7 +153,7 @@ export class GitHubImageHosting {
           }
         };
         reader.onerror = () => {
-          new Notice('❌ 读取文件失败');
+          new Notice('读取文件失败');
         };
         reader.readAsDataURL(file);
         break;
@@ -179,7 +179,7 @@ export class GitHubImageHosting {
     const maxSize = isMobile ? MAX_MOBILE_SIZE : MAX_FILE_SIZE;
     
     if (file.size > maxSize) {
-      new Notice(`❌ 文件过大 (${(file.size / 1024 / 1024).toFixed(1)}MB)，${isMobile ? '移动端' : ''}限制为 ${(maxSize / 1024 / 1024).toFixed(0)}MB`);
+      new Notice(`文件过大 (${(file.size / 1024 / 1024).toFixed(1)}MB)，${isMobile ? '移动端' : ''}限制为 ${(maxSize / 1024 / 1024).toFixed(0)}MB`);
       return;
     }
     
@@ -214,7 +214,7 @@ export class GitHubImageHosting {
       }
     };
     reader.onerror = () => {
-      new Notice('❌ 读取文件失败');
+      new Notice('读取文件失败');
     };
     reader.readAsDataURL(file);
   }
@@ -250,10 +250,10 @@ export class GitHubImageHosting {
       const linkPath = attachmentFolder + '/' + filename;
       const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
       view.editor.replaceRange(markdownLink, cursor);
-      new Notice('✅ 图片已保存到本地');
+      new Notice('图片已保存到本地');
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      new Notice('❌ 保存失败: ' + msg);
+      new Notice('保存失败: ' + msg);
     }
   }
 
@@ -264,7 +264,7 @@ export class GitHubImageHosting {
     const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
-      new Notice('❌ GitHub 配置不完整，请在插件设置中配置');
+      new Notice('GitHub 配置不完整，请在插件设置中配置');
       return;
     }
 
@@ -318,7 +318,7 @@ export class GitHubImageHosting {
       progressModal.close();
     } catch (error) {
       uploadError = error instanceof Error ? error.message : String(error);
-      progressModal.updateStatus('❌ 上传失败: ' + uploadError, 'error');
+      progressModal.updateStatus('上传失败: ' + uploadError, 'error');
       
       // Show error for 2 seconds then close
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -367,7 +367,7 @@ export class GitHubImageHosting {
       progressModal.close();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      progressModal.updateStatus('❌ 压缩或上传失败: ' + msg, 'error');
+      progressModal.updateStatus('压缩或上传失败: ' + msg, 'error');
       await new Promise(resolve => setTimeout(resolve, 2000));
       progressModal.close();
     }
@@ -597,7 +597,9 @@ class ImageConfirmModal extends Modal {
     // Mobile warning
     if (this.isMobile) {
       const warning = contentEl.createEl('div', { cls: 'mobile-warning-header' });
-      warning.textContent = '⚠️ 移动设备上传提示';
+      const warningIconEl = warning.createSpan({ cls: 'mobile-warning-icon' });
+      setIcon(warningIconEl, 'alert-triangle');
+      warning.appendText(' 移动设备上传提示');
       
       const warningContent = contentEl.createEl('div', { cls: 'mobile-warning-content' });
       warningContent.textContent = '请稍候，上传中勿离开此页面。如遇卡顿，请关闭此弹窗后重试。';
@@ -622,7 +624,8 @@ class ImageConfirmModal extends Modal {
 
     // Local save button
     const localBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-local' });
-    localBtn.innerHTML = '💾 保存本地';
+    setIcon(localBtn, 'hard-drive');
+    localBtn.appendText(' 保存本地');
     localBtn.addEventListener('click', () => {
       this.action = 'local';
       this.close();
@@ -630,7 +633,8 @@ class ImageConfirmModal extends Modal {
 
     // GitHub upload button
     const githubBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-github' });
-    githubBtn.innerHTML = '📤 无损上传';
+    setIcon(githubBtn, 'upload');
+    githubBtn.appendText(' 无损上传');
     githubBtn.addEventListener('click', () => {
       this.action = 'github';
       this.close();
@@ -639,7 +643,8 @@ class ImageConfirmModal extends Modal {
     // Compression button (if enabled and file is large)
     if (this.showCompressOption && this.compressAndUpload) {
       const compressBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-compress' });
-      compressBtn.innerHTML = '🗜️ 压缩上传';
+      setIcon(compressBtn, 'archive');
+      compressBtn.appendText(' 压缩上传');
       const compressCallback = this.compressAndUpload;
       compressBtn.addEventListener('click', async () => {
         this.close();
@@ -686,9 +691,9 @@ class UploadProgressModal extends Modal {
     this.statusEl.style.cssText = 'text-align: center; margin-bottom: 20px; display: flex; flex-direction: column; align-items: center;';
 
     // Status icon and message
-    const iconEl = this.statusEl.createEl('div');
-    iconEl.style.cssText = 'font-size: 3em; margin-bottom: 10px;';
-    iconEl.textContent = '📤';
+    const iconEl = this.statusEl.createEl('div', { cls: 'upload-status-icon' });
+    iconEl.style.cssText = 'width: 48px; height: 48px; margin-bottom: 10px; color: var(--interactive-accent);';
+    setIcon(iconEl, 'upload');
 
     this.messageEl = this.statusEl.createEl('p');
     this.messageEl.style.cssText = 'margin: 0; font-size: 1em; color: var(--text-normal); font-weight: 500;';
@@ -719,20 +724,23 @@ class UploadProgressModal extends Modal {
     }
 
     if (this.statusEl) {
-      const iconEl = this.statusEl.querySelector('div');
+      const iconEl = this.statusEl.querySelector('.upload-status-icon') as HTMLElement | null;
       if (iconEl) {
+        iconEl.empty();
         if (status === 'uploading') {
-          iconEl.textContent = '📤';
+          iconEl.style.color = 'var(--interactive-accent)';
+          setIcon(iconEl, 'upload');
           iconEl.style.animation = 'none';
         } else if (status === 'success') {
-          iconEl.textContent = '✅';
-          // Stop animation
+          iconEl.style.color = 'var(--text-success)';
+          setIcon(iconEl, 'check-circle');
           if (this.progressBarEl) {
             this.progressBarEl.style.width = '100%';
             this.progressBarEl.style.backgroundColor = 'var(--text-success)';
           }
         } else if (status === 'error') {
-          iconEl.textContent = '❌';
+          iconEl.style.color = 'var(--text-error)';
+          setIcon(iconEl, 'x-circle');
           if (this.progressBarEl) {
             this.progressBarEl.style.width = '100%';
             this.progressBarEl.style.backgroundColor = 'var(--text-error)';
@@ -781,7 +789,7 @@ export class GalleryView extends ItemView {
     // 在 tab header 菜单中添加“刷新”按钮（兼容 Obsidian 1.4+，onHeaderMenu 只在 tab header ... 菜单中生效）
     this.onHeaderMenu = (menu: Menu) => {
       menu.addItem((item) => {
-        item.setTitle('🔄 刷新')
+        item.setTitle('刷新')
           .setIcon('refresh-cw')
           .onClick(async () => {
             await this.refreshGallery();
@@ -813,7 +821,8 @@ export class GalleryView extends ItemView {
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
     titleContainer.createEl('h2', { text: 'Github图片库' });
     
-    const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn', text: '🔄' });
+    const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn' });
+    setIcon(refreshBtn, 'refresh-cw');
     refreshBtn.title = '刷新Github图片库';
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
@@ -831,7 +840,10 @@ export class GalleryView extends ItemView {
       loadingEl.remove();
 
       if (this.allImages.length === 0) {
-        container.createEl('div', { cls: 'gallery-empty', text: '📭 还没有上传过图片' });
+        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
+        const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
+        setIcon(emptyIconEl, 'inbox');
+        emptyEl.appendText(' 还没有上传过图片');
         return;
       }
 
@@ -845,7 +857,7 @@ export class GalleryView extends ItemView {
       loadingEl.remove();
       const errorEl = container.createEl('div', { cls: 'gallery-error' });
       const msg = error instanceof Error ? error.message : String(error);
-      errorEl.innerHTML = `<p>❌ 加载失败: ${msg}</p><p>请检查 GitHub 配置和网络连接</p>`;
+      errorEl.innerHTML = `<p>加载失败: ${msg}</p><p>请检查 GitHub 配置和网络连接</p>`;
     }
   }
 
@@ -868,7 +880,10 @@ export class GalleryView extends ItemView {
       loadingEl.remove();
 
       if (this.allImages.length === 0) {
-        container.createEl('div', { cls: 'gallery-empty', text: '📭 还没有上传过图片' });
+        const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
+        const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
+        setIcon(emptyIconEl, 'inbox');
+        emptyEl.appendText(' 还没有上传过图片');
         return;
       }
 
@@ -881,7 +896,7 @@ export class GalleryView extends ItemView {
       loadingEl.remove();
       const errorEl = container.createEl('div', { cls: 'gallery-error' });
       const msg = error instanceof Error ? error.message : String(error);
-      errorEl.innerHTML = `<p>❌ 刷新失败: ${msg}</p>`;
+      errorEl.innerHTML = `<p>刷新失败: ${msg}</p>`;
     }
   }
 
@@ -892,7 +907,8 @@ export class GalleryView extends ItemView {
   onHeaderMenu(menu: Menu) {
     menu.addItem((item) => {
       item
-        .setTitle('🔄 刷新')
+        .setTitle('刷新')
+        .setIcon('refresh-cw')
         .onClick(async () => {
           await this.refreshGallery();
         });
@@ -900,7 +916,8 @@ export class GalleryView extends ItemView {
 
     menu.addItem((item) => {
       item
-        .setTitle('⚡ 强制刷新')
+        .setTitle('强制刷新')
+        .setIcon('zap')
         .onClick(async () => {
           const container = this.containerEl.children[1] as HTMLElement;
           container.empty();
@@ -912,10 +929,10 @@ export class GalleryView extends ItemView {
             this.displayedImages = [];
             this.currentPage = 0;
             await this.onOpen();
-            new Notice('✅ 强制刷新完成');
+            new Notice('强制刷新完成');
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            new Notice('❌ 强制刷新失败: ' + msg);
+            new Notice('强制刷新失败: ' + msg);
           }
         });
     });
@@ -976,10 +993,12 @@ export class GalleryView extends ItemView {
         <div class="gallery-detail-row"><span class="detail-label">上传:</span><span class="detail-value">${this.formatDate(image.date)}</span></div>
       `;
 
-      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn', text: '📋 复制链接' });
+      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn' });
+      setIcon(copyBtn, 'clipboard');
+      copyBtn.appendText(' 复制链接');
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(image.url);
-        new Notice('✅ 已复制到剪贴板');
+        new Notice('已复制到剪贴板');
       });
   }
 
@@ -1136,31 +1155,47 @@ class ImageDetailModal extends Modal {
     // Action buttons
     const buttonGroup = infoPanel.createEl('div', { cls: 'image-detail-actions' });
 
-    const copyBtn = buttonGroup.createEl('button', { cls: 'action-btn copy-btn', text: '📋 链接' });
+    const copyBtn = buttonGroup.createEl('button', { cls: 'action-btn copy-btn' });
+    setIcon(copyBtn, 'clipboard');
+    copyBtn.appendText(' 链接');
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(this.image.url);
-      copyBtn.textContent = '✅';
+      copyBtn.empty();
+      setIcon(copyBtn, 'check');
+      copyBtn.appendText(' 已复制');
       setTimeout(() => {
-        copyBtn.textContent = '📋 链接';
+        copyBtn.empty();
+        setIcon(copyBtn, 'clipboard');
+        copyBtn.appendText(' 链接');
       }, 2000);
     });
 
-    const copyMarkdownBtn = buttonGroup.createEl('button', { cls: 'action-btn markdown-btn', text: '📝 MD' });
+    const copyMarkdownBtn = buttonGroup.createEl('button', { cls: 'action-btn markdown-btn' });
+    setIcon(copyMarkdownBtn, 'file-text');
+    copyMarkdownBtn.appendText(' MD');
     copyMarkdownBtn.addEventListener('click', () => {
       const markdown = `![image](${this.image.url})`;
       navigator.clipboard.writeText(markdown);
-      copyMarkdownBtn.textContent = '✅';
+      copyMarkdownBtn.empty();
+      setIcon(copyMarkdownBtn, 'check');
+      copyMarkdownBtn.appendText(' 已复制');
       setTimeout(() => {
-        copyMarkdownBtn.textContent = '📝 MD';
+        copyMarkdownBtn.empty();
+        setIcon(copyMarkdownBtn, 'file-text');
+        copyMarkdownBtn.appendText(' MD');
       }, 2000);
     });
 
-    const openBtn = buttonGroup.createEl('button', { cls: 'action-btn open-btn', text: '🔗 打开' });
+    const openBtn = buttonGroup.createEl('button', { cls: 'action-btn open-btn' });
+    setIcon(openBtn, 'external-link');
+    openBtn.appendText(' 打开');
     openBtn.addEventListener('click', () => {
       window.open(this.image.url, '_blank');
     });
 
-    const deleteBtn = buttonGroup.createEl('button', { cls: 'action-btn delete-btn', text: '🗑️ 删除' });
+    const deleteBtn = buttonGroup.createEl('button', { cls: 'action-btn delete-btn' });
+    setIcon(deleteBtn, 'trash-2');
+    deleteBtn.appendText(' 删除');
     deleteBtn.addEventListener('click', async () => {
       const confirmMessage = '确定删除此图片？';
       if (confirm(confirmMessage)) {
@@ -1168,7 +1203,7 @@ class ImageDetailModal extends Modal {
           deleteBtn.disabled = true;
           deleteBtn.textContent = '删中...';
           await this.deleteImage();
-          new Notice('✅ 删除成功');
+          new Notice('删除成功');
           // Call the callback to update cache
           if (this.onImageDeleted) {
             this.onImageDeleted();
@@ -1176,9 +1211,11 @@ class ImageDetailModal extends Modal {
           this.close();
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
-          new Notice('❌ 删除失败: ' + msg);
+          new Notice('删除失败: ' + msg);
           deleteBtn.disabled = false;
-          deleteBtn.textContent = '🗑️ 删除';
+          deleteBtn.empty();
+          setIcon(deleteBtn, 'trash-2');
+          deleteBtn.appendText(' 删除');
         }
       }
     });

@@ -39,6 +39,15 @@
   line-height: 1.6;
   color: var(--text-normal);
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-warning-icon svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
 }
 
 .mobile-warning-content {
@@ -149,6 +158,12 @@
   position: relative;
 }
 
+.image-confirm-btn svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
 @media (max-width: 600px) {
   .image-confirm-btn {
     padding: 11px 14px;
@@ -207,10 +222,19 @@
   margin-top: 24px;
   margin-bottom: 12px;
   font-size: 1.1em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .github-image-uploader-settings h3:first-child {
   margin-top: 0;
+}
+
+.github-image-uploader-settings h3 svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
 }
 
 .image-uploader-info-box {
@@ -290,9 +314,20 @@
 }
 
 .upload-progress-modal .status-icon {
-  font-size: 3em;
+  width: 48px;
+  height: 48px;
   margin-bottom: 10px;
   animation: pulse 1s infinite;
+}
+
+.upload-progress-modal .status-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.upload-status-icon svg {
+  width: 48px;
+  height: 48px;
 }
 
 .upload-progress-modal .status-message {
@@ -328,7 +363,13 @@
   }
 
   .upload-progress-modal .status-icon {
-    font-size: 2.5em;
+    width: 40px;
+    height: 40px;
+  }
+
+  .upload-progress-modal .status-icon svg {
+    width: 40px;
+    height: 40px;
   }
 
   .upload-progress-modal .status-message {
@@ -374,7 +415,6 @@
   background: var(--background-tertiary);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 1.2em;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -382,6 +422,11 @@
   flex-shrink: 0;
   min-width: 40px;
   height: 40px;
+}
+
+.gallery-refresh-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .gallery-refresh-btn:hover:not(:disabled) {
@@ -586,6 +631,16 @@
   transition: all 0.2s ease;
   width: 100%;
   margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.gallery-copy-btn svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
 }
 
 .gallery-copy-btn:hover {
@@ -662,6 +717,17 @@
 .gallery-empty {
   text-align: center;
   padding: 60px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.gallery-empty-icon svg {
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: middle;
 }
 
 /* Error state */
@@ -797,6 +863,12 @@
   justify-content: center;
   gap: 4px;
   white-space: nowrap;
+}
+
+.action-btn svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
 }
 
 .copy-btn {
