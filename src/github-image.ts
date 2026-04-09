@@ -1108,7 +1108,7 @@ export class GalleryView extends ItemView {
     const startOfSevenDays = new Date(startOfToday);
     startOfSevenDays.setDate(startOfSevenDays.getDate() - 7);
     const startOfThirtyDays = new Date(startOfToday);
-    startOfThirtyDays.setDate(startOfThirtyDays.getDate() - 29);
+    startOfThirtyDays.setDate(startOfThirtyDays.getDate() - 30);
 
     if (date >= startOfToday) return '今天';
     if (date >= startOfSevenDays) return '近7天';
