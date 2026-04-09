@@ -775,6 +775,7 @@ export class GalleryView extends ItemView {
   private plugin: GitHubImageUploaderPlugin;
   private allImages: GalleryImage[] = [];
   private displayedImages: GalleryImage[] = [];
+  private groupCounts = new Map<string, number>();
   private imagesPerPage = 10; // Changed from 30 to 10
   private currentPage = 0;
   private galleryGrid: HTMLElement | null = null;
@@ -835,6 +836,7 @@ export class GalleryView extends ItemView {
 
     try {
       this.allImages = await this.fetchImagesFromGitHub();
+      this.groupCounts = this.buildGroupCounts(this.allImages);
       loadingEl.remove();
 
       if (this.allImages.length === 0) {
@@ -845,8 +847,7 @@ export class GalleryView extends ItemView {
         return;
       }
 
-      const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
-      infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
+      this.createInfoBar(container);
 
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
       this.loadMoreImages();
@@ -863,6 +864,7 @@ export class GalleryView extends ItemView {
     // Reset state and UI
     this.allImages = [];
     this.displayedImages = [];
+    this.groupCounts = new Map();
     this.currentPage = 0;
     const container = this.containerEl.children[1] as HTMLElement;
     
@@ -875,6 +877,7 @@ export class GalleryView extends ItemView {
 
     try {
       this.allImages = await this.fetchImagesFromGitHub();
+      this.groupCounts = this.buildGroupCounts(this.allImages);
       loadingEl.remove();
 
       if (this.allImages.length === 0) {
@@ -885,8 +888,7 @@ export class GalleryView extends ItemView {
         return;
       }
 
-      const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
-      infoBar.innerHTML = `<span>共 ${this.allImages.length} 张图片</span><span>总大小: ${this.formatBytes(this.getTotalSize())}</span>`;
+      this.createInfoBar(container);
 
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
       this.loadMoreImages();
@@ -949,10 +951,17 @@ export class GalleryView extends ItemView {
     const endIndex = startIndex + this.imagesPerPage;
     const newImages = this.allImages.slice(startIndex, endIndex);
 
-    this.displayedImages.push(...newImages);
-
     newImages.forEach(image => {
+      const currentGroup = this.getTimeGroupLabel(image.date);
+      const previousImage = this.displayedImages[this.displayedImages.length - 1];
+      const previousGroup = previousImage ? this.getTimeGroupLabel(previousImage.date) : null;
+
+      if (currentGroup !== previousGroup) {
+        this.createGroupHeader(currentGroup);
+      }
+
       this.createImageCard(image);
+      this.displayedImages.push(image);
     });
 
     this.currentPage++;
@@ -1000,6 +1009,24 @@ export class GalleryView extends ItemView {
       });
   }
 
+  private createInfoBar(container: HTMLElement) {
+    const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
+    infoBar.createEl('span', { text: `共 ${this.allImages.length} 张图片` });
+    infoBar.createEl('span', { text: `总大小: ${this.formatBytes(this.getTotalSize())}` });
+    infoBar.createEl('span', { text: '分组: 今天 / 近7天 / 近30天 / 更早' });
+  }
+
+  private createGroupHeader(groupLabel: string) {
+    if (!this.galleryGrid) return;
+
+    const header = this.galleryGrid.createEl('div', { cls: 'gallery-group-header' });
+    header.createEl('span', { cls: 'gallery-group-title', text: groupLabel });
+    header.createEl('span', {
+      cls: 'gallery-group-meta',
+      text: `${this.groupCounts.get(groupLabel) ?? 0} 张`,
+    });
+  }
+
   private async fetchImagesFromGitHub(): Promise<GalleryImage[]> {
     const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
 
@@ -1045,7 +1072,7 @@ export class GalleryView extends ItemView {
               const dateDiff = b.date.getTime() - a.date.getTime();
               return dateDiff !== 0
                 ? dateDiff
-                : b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' });
+                : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
             })
         : [];
     } catch (error) {
@@ -1077,6 +1104,28 @@ export class GalleryView extends ItemView {
     }
 
     return new Date(0);
+  }
+
+  private getTimeGroupLabel(date: Date): string {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfSevenDays = new Date(startOfToday);
+    startOfSevenDays.setDate(startOfSevenDays.getDate() - 6);
+    const startOfThirtyDays = new Date(startOfToday);
+    startOfThirtyDays.setDate(startOfThirtyDays.getDate() - 29);
+
+    if (date >= startOfToday) return '今天';
+    if (date >= startOfSevenDays) return '近7天';
+    if (date >= startOfThirtyDays) return '近30天';
+    return '更早';
+  }
+
+  private buildGroupCounts(images: GalleryImage[]): Map<string, number> {
+    return images.reduce((groups, image) => {
+      const groupLabel = this.getTimeGroupLabel(image.date);
+      groups.set(groupLabel, (groups.get(groupLabel) ?? 0) + 1);
+      return groups;
+    }, new Map<string, number>());
   }
 
   private isImageFile(filename: string): boolean {
