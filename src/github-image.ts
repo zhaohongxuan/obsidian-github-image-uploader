@@ -591,8 +591,6 @@ class ImageConfirmModal extends Modal {
     contentEl.empty();
     contentEl.addClass('image-confirm-modal');
     modalEl.addClass('image-confirm-modal-shell');
-    modalEl.style.width = '760px';
-    modalEl.style.maxWidth = '92vw';
 
     // Title
     const title = contentEl.createEl('h2', { text: '图片处理' });
@@ -684,8 +682,6 @@ class UploadProgressModal extends Modal {
     contentEl.empty();
     contentEl.addClass('upload-progress-modal');
     modalEl.addClass('upload-progress-modal-shell');
-    modalEl.style.width = '420px';
-    modalEl.style.maxWidth = '92vw';
 
     // Title
     const title = contentEl.createEl('h2', { text: '上传图片' });
