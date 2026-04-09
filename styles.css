@@ -147,7 +147,6 @@
 @media (max-width: 600px) {
   .button-container {
     grid-template-columns: 1fr;
-    gap: 8px;
   }
 }
 

@@ -593,9 +593,7 @@ class ImageConfirmModal extends Modal {
     modalEl.addClass('image-confirm-modal-shell');
 
     // Title
-    const title = contentEl.createEl('h2', { text: '图片处理' });
-    title.tabIndex = -1;
-    window.setTimeout(() => title.focus(), 0);
+    contentEl.createEl('h2', { text: '图片处理' });
 
     // Mobile warning
     if (this.isMobile) {
@@ -684,9 +682,7 @@ class UploadProgressModal extends Modal {
     modalEl.addClass('upload-progress-modal-shell');
 
     // Title
-    const title = contentEl.createEl('h2', { text: '上传图片' });
-    title.tabIndex = -1;
-    window.setTimeout(() => title.focus(), 0);
+    contentEl.createEl('h2', { text: '上传图片' });
 
     // Status container
     this.statusEl = contentEl.createEl('div', { cls: 'status-container' });
@@ -1110,7 +1106,7 @@ export class GalleryView extends ItemView {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfSevenDays = new Date(startOfToday);
-    startOfSevenDays.setDate(startOfSevenDays.getDate() - 6);
+    startOfSevenDays.setDate(startOfSevenDays.getDate() - 7);
     const startOfThirtyDays = new Date(startOfToday);
     startOfThirtyDays.setDate(startOfThirtyDays.getDate() - 29);
 
