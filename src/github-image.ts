@@ -587,12 +587,17 @@ class ImageConfirmModal extends Modal {
   }
 
   onOpen() {
-    const { contentEl } = this;
+    const { contentEl, modalEl } = this;
     contentEl.empty();
     contentEl.addClass('image-confirm-modal');
+    modalEl.addClass('image-confirm-modal-shell');
+    modalEl.style.width = '760px';
+    modalEl.style.maxWidth = '92vw';
 
     // Title
     const title = contentEl.createEl('h2', { text: '图片处理' });
+    title.tabIndex = -1;
+    window.setTimeout(() => title.focus(), 0);
 
     // Mobile warning
     if (this.isMobile) {
@@ -675,44 +680,41 @@ class UploadProgressModal extends Modal {
   }
 
   onOpen() {
-    const { contentEl } = this;
+    const { contentEl, modalEl } = this;
     contentEl.empty();
     contentEl.addClass('upload-progress-modal');
-    contentEl.style.cssText = 'display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;';
+    modalEl.addClass('upload-progress-modal-shell');
+    modalEl.style.width = '420px';
+    modalEl.style.maxWidth = '92vw';
 
     // Title
     const title = contentEl.createEl('h2', { text: '上传图片' });
-    title.style.marginTop = '0';
-    title.style.marginBottom = '20px';
-    title.style.textAlign = 'center';
+    title.tabIndex = -1;
+    window.setTimeout(() => title.focus(), 0);
 
     // Status container
-    this.statusEl = contentEl.createEl('div');
-    this.statusEl.style.cssText = 'text-align: center; margin-bottom: 20px; display: flex; flex-direction: column; align-items: center;';
+    this.statusEl = contentEl.createEl('div', { cls: 'status-container' });
 
     // Status icon and message
     const iconEl = this.statusEl.createEl('div', { cls: 'upload-status-icon' });
-    iconEl.style.cssText = 'width: 48px; height: 48px; margin-bottom: 10px; color: var(--interactive-accent);';
+    iconEl.style.color = 'var(--interactive-accent)';
     setIcon(iconEl, 'upload');
 
-    this.messageEl = this.statusEl.createEl('p');
-    this.messageEl.style.cssText = 'margin: 0; font-size: 1em; color: var(--text-normal); font-weight: 500;';
+    this.messageEl = this.statusEl.createEl('p', { cls: 'status-message' });
     this.messageEl.textContent = '正在上传到 GitHub...';
 
     // Progress bar container
-    const progressContainer = contentEl.createEl('div');
-    progressContainer.style.cssText = 'width: 100%; max-width: 300px; height: 8px; background: var(--background-secondary); border-radius: 4px; overflow: hidden; margin: 20px 0;';
+    const progressContainer = contentEl.createEl('div', { cls: 'progress-container' });
 
     // Progress bar
     this.progressBarEl = progressContainer.createEl('div');
-    this.progressBarEl.style.cssText = 'height: 100%; background: var(--interactive-accent); border-radius: 4px; transition: width 0.3s ease; width: 0%;';
+    this.progressBarEl.addClass('progress-bar');
 
     // Animate progress
     this.animateProgress();
 
     // Details text
-    const detailsEl = contentEl.createEl('p');
-    detailsEl.style.cssText = 'font-size: 0.85em; color: var(--text-muted); text-align: center; margin: 15px 0 0 0; max-width: 300px;';
+    const detailsEl = contentEl.createEl('p', { cls: 'status-details' });
     detailsEl.textContent = '这通常需要 5-30 秒，具体时间取决于网络连接';
   }
 
@@ -1009,11 +1011,16 @@ export class GalleryView extends ItemView {
       throw new Error('GitHub 配置不完整');
     }
 
-    const apiUrl = `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${imagePath}`;
+    const normalizedImagePath = imagePath.replace(/^\/+|\/+$/g, '');
+    const apiUrl = new URL(
+      `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents${normalizedImagePath ? `/${normalizedImagePath}` : ''}`
+    );
+    apiUrl.searchParams.set('ref', gitHubBranch);
 
     try {
-      const response = await fetch(apiUrl, {
+      const response = await fetch(apiUrl.toString(), {
         method: 'GET',
+        cache: 'no-store',
         headers: {
           'Accept': 'application/vnd.github+json',
           'Authorization': `Bearer ${gitHubToken}`,
@@ -1035,15 +1042,45 @@ export class GalleryView extends ItemView {
             .map((file: any) => ({
               name: file.name,
               size: file.size,
-              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${imagePath.replace(/\/$/, '')}/${file.name}`,
-              date: new Date(file.created_at || file.updated_at || Date.now()),
+              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${file.name}`,
+              date: this.resolveImageDate(file),
             }))
-            .sort((a, b) => b.date.getTime() - a.date.getTime())
+            .sort((a, b) => {
+              const dateDiff = b.date.getTime() - a.date.getTime();
+              return dateDiff !== 0
+                ? dateDiff
+                : b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' });
+            })
         : [];
     } catch (error) {
       console.error("Error fetching images from GitHub:", error);
       throw error;
     }
+  }
+
+  private resolveImageDate(file: { name: string; created_at?: string; updated_at?: string }): Date {
+    const apiDate = file.created_at || file.updated_at;
+    if (apiDate) {
+      const parsedApiDate = new Date(apiDate);
+      if (!Number.isNaN(parsedApiDate.getTime())) {
+        return parsedApiDate;
+      }
+    }
+
+    const filenameMatch = file.name.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+    if (filenameMatch) {
+      const [, year, month, day, hour, minute, second] = filenameMatch;
+      return new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second),
+      );
+    }
+
+    return new Date(0);
   }
 
   private isImageFile(filename: string): boolean {
@@ -1231,12 +1268,17 @@ class ImageDetailModal extends Modal {
     }
 
     // Get current file SHA (needed for deletion)
-    const apiUrl = `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${imagePath}/${this.image.name}`;
+    const normalizedImagePath = imagePath.replace(/^\/+|\/+$/g, '');
+    const apiUrl = new URL(
+      `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${this.image.name}`
+    );
+    apiUrl.searchParams.set('ref', gitHubBranch);
 
     try {
       // First get the file info to get its SHA
-      const getResponse = await fetch(apiUrl, {
+      const getResponse = await fetch(apiUrl.toString(), {
         method: 'GET',
+        cache: 'no-store',
         headers: {
           'Accept': 'application/vnd.github+json',
           'Authorization': `Bearer ${gitHubToken}`,
@@ -1252,7 +1294,9 @@ class ImageDetailModal extends Modal {
       const sha = fileData.sha;
 
       // Now delete the file
-      const deleteResponse = await fetch(apiUrl, {
+      const deleteUrl = new URL(apiUrl.toString());
+      deleteUrl.searchParams.delete('ref');
+      const deleteResponse = await fetch(deleteUrl.toString(), {
         method: 'DELETE',
         headers: {
           'Accept': 'application/vnd.github+json',
@@ -1288,4 +1332,3 @@ class ImageDetailModal extends Modal {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   }
 }
-
