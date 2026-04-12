@@ -2,14 +2,25 @@ import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, TFile,
 import type GitHubImageUploaderPlugin from './main';
 
 /**
- * Image data interface
+ * Unified image data interface for both local and remote images
  */
-export interface GalleryImage {
+export interface UnifiedImage {
   name: string;
   size: number;
-  url: string;
   date: Date;
+  imageType: 'local' | 'remote';
+  // Remote image properties
+  url?: string;
+  // Local image properties
+  path?: string;
+  file?: TFile;
 }
+
+/**
+ * Legacy alias for backward compatibility
+ * @deprecated Use UnifiedImage instead
+ */
+export type GalleryImage = UnifiedImage;
 
 /**
  * GitHub Image Hosting Module
@@ -769,19 +780,21 @@ export const GALLERY_VIEW_TYPE = 'github-image-gallery-view';
 
 export class GalleryView extends ItemView {
   private plugin: GitHubImageUploaderPlugin;
-  private allImages: GalleryImage[] = [];
-  private displayedImages: GalleryImage[] = [];
+  private allImages: UnifiedImage[] = [];
+  private displayedImages: UnifiedImage[] = [];
   private groupCounts = new Map<string, number>();
-  private imagesPerPage = 10; // Changed from 30 to 10
+  private imagesPerPage = 20;
   private currentPage = 0;
   private galleryGrid: HTMLElement | null = null;
   private loadMoreBtn: HTMLElement | null = null;
+  private currentFilter: 'all' | 'local' | 'remote' = 'all';
+  private filterContainer: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: GitHubImageUploaderPlugin) {
     super(leaf);
     this.plugin = plugin;
 
-    // 在 tab header 菜单中添加“刷新”按钮（兼容 Obsidian 1.4+，onHeaderMenu 只在 tab header ... 菜单中生效）
+    // 在 tab header 菜单中添加”刷新”按钮（兼容 Obsidian 1.4+，onHeaderMenu 只在 tab header ... 菜单中生效）
     this.onHeaderMenu = (menu: Menu) => {
       menu.addItem((item) => {
         item.setTitle('刷新')
@@ -800,7 +813,7 @@ export class GalleryView extends ItemView {
   }
 
   getDisplayText(): string {
-    return 'Github图片库';
+    return '图片库';
   }
 
   getIcon(): string {
@@ -814,10 +827,14 @@ export class GalleryView extends ItemView {
 
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-    titleContainer.createEl('span', { text: '' });
+
+    // Filter dropdown and stats in a row
+    const filterRow = titleContainer.createEl('div', { cls: 'gallery-header-filter-row' });
+    this.filterContainer = filterRow.createEl('div', { cls: 'gallery-header-filters' });
+    this.createFilterButtons();
 
     // Stats container (will be populated after data loads)
-    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
+    const statsContainer = filterRow.createEl('div', { cls: 'gallery-header-stats' });
 
     // Button container on the right
     const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
@@ -846,7 +863,12 @@ export class GalleryView extends ItemView {
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '加载中...' });
 
     try {
-      this.allImages = await this.fetchImagesFromGitHub();
+      const [remoteImages, localImages] = await Promise.all([
+        this.fetchImagesFromGitHub(),
+        this.discoverLocalImages(),
+      ]);
+      this.allImages = [...remoteImages, ...localImages];
+      this.allImages.sort((a, b) => b.date.getTime() - a.date.getTime());
       this.groupCounts = this.buildGroupCounts(this.allImages);
       loadingEl.remove();
 
@@ -854,7 +876,7 @@ export class GalleryView extends ItemView {
         const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
         const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
         setIcon(emptyIconEl, 'inbox');
-        emptyEl.appendText(' 还没有上传过图片');
+        emptyEl.appendText(' 还没有图片');
         return;
       }
 
@@ -869,7 +891,7 @@ export class GalleryView extends ItemView {
       loadingEl.remove();
       const errorEl = container.createEl('div', { cls: 'gallery-error' });
       const msg = error instanceof Error ? error.message : String(error);
-      errorEl.innerHTML = `<p>加载失败: ${msg}</p><p>请检查 GitHub 配置和网络连接</p>`;
+      errorEl.innerHTML = `<p>加载失败: ${msg}</p>`;
     }
   }
 
@@ -918,15 +940,22 @@ export class GalleryView extends ItemView {
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '刷新中...' });
 
     try {
-      this.allImages = await this.fetchImagesFromGitHub();
+      const [remoteImages, localImages] = await Promise.all([
+        this.fetchImagesFromGitHub(),
+        this.discoverLocalImages(),
+      ]);
+      this.allImages = [...remoteImages, ...localImages];
+      this.allImages.sort((a, b) => b.date.getTime() - a.date.getTime());
       this.groupCounts = this.buildGroupCounts(this.allImages);
+      this.currentPage = 0;
+      this.displayedImages = [];
       loadingEl.remove();
 
       if (this.allImages.length === 0) {
         const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
         const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
         setIcon(emptyIconEl, 'inbox');
-        emptyEl.appendText(' 还没有上传过图片');
+        emptyEl.appendText(' 还没有图片');
         return;
       }
 
@@ -991,9 +1020,10 @@ export class GalleryView extends ItemView {
       this.loadMoreBtn = null;
     }
 
+    const filteredImages = this.getFilteredImages();
     const startIndex = this.currentPage * this.imagesPerPage;
     const endIndex = startIndex + this.imagesPerPage;
-    const newImages = this.allImages.slice(startIndex, endIndex);
+    const newImages = filteredImages.slice(startIndex, endIndex);
 
     newImages.forEach(image => {
       const currentGroup = this.getTimeGroupLabel(image.date);
@@ -1011,9 +1041,9 @@ export class GalleryView extends ItemView {
     this.currentPage++;
 
     // If there are more images, create a new "Load More" button
-    if (endIndex < this.allImages.length) {
+    if (endIndex < filteredImages.length) {
       this.loadMoreBtn = this.galleryGrid.createEl('div', { cls: 'gallery-load-more-trigger' });
-      const button = this.loadMoreBtn.createEl('button', { text: `加载更多 (${endIndex}/${this.allImages.length})`});
+      const button = this.loadMoreBtn.createEl('button', { text: `加载更多 (${endIndex}/${filteredImages.length})`});
       button.addEventListener('click', () => {
         button.textContent = '加载中...';
         button.disabled = true;
@@ -1027,15 +1057,33 @@ export class GalleryView extends ItemView {
       });
     }
   }
-  
-  private createImageCard(image: GalleryImage) {
+
+  private createImageCard(image: UnifiedImage) {
       if (!this.galleryGrid) return;
-      
+
       const card = this.galleryGrid!.createEl('div', { cls: 'gallery-card' });
 
       const imageContainer = card.createEl('div', { cls: 'gallery-image-container' });
+
+      // Add type badge with icon
+      const badge = card.createEl('div', { cls: 'gallery-card-badge' });
+      if (image.imageType === 'local') {
+        badge.addClass('badge-local');
+        setIcon(badge, 'folder');
+      } else {
+        badge.addClass('badge-remote');
+        setIcon(badge, 'cloud');
+      }
+
       const img = imageContainer.createEl('img', { cls: 'gallery-image' });
-      img.src = image.url;
+
+      // Set image source based on type
+      if (image.imageType === 'local' && image.file) {
+        img.src = this.app.vault.getResourcePath(image.file);
+      } else {
+        img.src = image.url || '';
+      }
+
       img.alt = image.name;
       img.title = image.name;
       img.addEventListener('click', () => this.openImageDetail(image));
@@ -1052,7 +1100,72 @@ export class GalleryView extends ItemView {
     });
   }
 
-  private async fetchImagesFromGitHub(): Promise<GalleryImage[]> {
+  private createFilterButtons() {
+    if (!this.filterContainer) return;
+
+    const select = this.filterContainer.createEl('select', { cls: 'gallery-filter-select' });
+
+    const options = [
+      { key: 'all', label: '全部', icon: '📷' },
+      { key: 'local', label: '本地', icon: '📁' },
+      { key: 'remote', label: '远程', icon: '☁️' },
+    ];
+
+    options.forEach((opt) => {
+      const optionEl = select.createEl('option', { value: opt.key });
+      optionEl.text = opt.label;
+    });
+
+    select.value = this.currentFilter;
+    select.addEventListener('change', () => {
+      this.currentFilter = select.value as 'all' | 'local' | 'remote';
+      this.applyFilter();
+    });
+  }
+
+  private applyFilter() {
+    // Reset pagination
+    this.currentPage = 0;
+    this.displayedImages = [];
+
+    // Rebuild the grid
+    const container = this.containerEl.children[1] as HTMLElement;
+    const existingGrid = container.querySelector('.gallery-grid');
+    if (existingGrid) {
+      existingGrid.remove();
+    }
+
+    const allFiltered = this.getFilteredImages();
+    const filteredCounts = this.buildGroupCounts(allFiltered);
+
+    // Update stats
+    const statsContainer = container.querySelector('.gallery-header-stats');
+    if (statsContainer) {
+      statsContainer.innerHTML = '';
+      statsContainer.createEl('span', { text: `共 ${allFiltered.length} 张图片` });
+    }
+
+    if (allFiltered.length === 0) {
+      const emptyEl = container.createEl('div', { cls: 'gallery-empty' });
+      const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
+      setIcon(emptyIconEl, 'inbox');
+      emptyEl.appendText(' 没有符合条件的图片');
+      return;
+    }
+
+    this.groupCounts = filteredCounts;
+    this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
+    this.loadMoreImages();
+  }
+
+  private getFilteredImages(): UnifiedImage[] {
+    if (this.currentFilter === 'all') {
+      return this.allImages;
+    }
+    return this.allImages.filter(img => img.imageType === this.currentFilter);
+  }
+
+  private async fetchImagesFromGitHub(): Promise<UnifiedImage[]> {
     const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
@@ -1092,6 +1205,7 @@ export class GalleryView extends ItemView {
               size: file.size,
               url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${file.name}`,
               date: this.resolveImageDate(file),
+              imageType: 'remote' as const,
             }))
             .sort((a, b) => {
               const dateDiff = b.date.getTime() - a.date.getTime();
@@ -1104,6 +1218,39 @@ export class GalleryView extends ItemView {
       console.error("Error fetching images from GitHub:", error);
       throw error;
     }
+  }
+
+  private async discoverLocalImages(): Promise<UnifiedImage[]> {
+    const { localFolder } = this.plugin.settings;
+    const files = this.app.vault.getFiles();
+    const normalizedFolder = localFolder.toLowerCase();
+
+    const localImages: UnifiedImage[] = [];
+
+    for (const file of files) {
+      // Check if file is in the local folder (case-insensitive)
+      if (!file.path.toLowerCase().startsWith(normalizedFolder + '/')) {
+        continue;
+      }
+
+      // Check if it's an image file
+      const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (!ext || !imageExtensions.includes(ext)) {
+        continue;
+      }
+
+      localImages.push({
+        name: file.name,
+        path: file.path,
+        size: file.stat.size,
+        date: new Date(file.stat.mtime),
+        imageType: 'local',
+        file,
+      });
+    }
+
+    return localImages;
   }
 
   private resolveImageDate(file: { name: string; created_at?: string; updated_at?: string }): Date {
@@ -1180,11 +1327,27 @@ export class GalleryView extends ItemView {
     return this.allImages.reduce((sum, img) => sum + img.size, 0);
   }
 
-  private openImageDetail(image: GalleryImage) {
-    new ImageDetailModal(this.app, image, this.plugin, () => {
-      // Refresh gallery after deletion
-      this.refreshGallery();
-    }).open();
+  private openImageDetail(image: UnifiedImage) {
+    if (image.imageType === 'local') {
+      // Import and open LocalImageDetailModal
+      import('./local-images').then(({ LocalImageDetailModal, ImageSearch }) => {
+        const imageSearch = new ImageSearch(this.app);
+        const localImage = {
+          name: image.name,
+          path: image.path!,
+          size: image.size,
+          mtime: image.date,
+          file: image.file!,
+        };
+        new LocalImageDetailModal(this.app, localImage, this.plugin, imageSearch, () => {
+          this.refreshGallery();
+        }).open();
+      });
+    } else {
+      new ImageDetailModal(this.app, image, this.plugin, () => {
+        this.refreshGallery();
+      }).open();
+    }
   }
 }
 
@@ -1218,7 +1381,7 @@ export class ImageGalleryModal extends Modal {
 class ImageDetailModal extends Modal {
   constructor(
     app: App,
-    private image: GalleryImage,
+    private image: UnifiedImage,
     private plugin: GitHubImageUploaderPlugin,
     private onImageDeleted?: () => void
   ) {
@@ -1249,7 +1412,13 @@ class ImageDetailModal extends Modal {
     const infoBody = infoPanel.createEl('div', { cls: 'image-detail-body' });
 
     // Filename
-    infoBody.createEl('h3', { text: this.image.name });
+    const titleRow = infoBody.createEl('div', { cls: 'image-detail-title-row' });
+    titleRow.createEl('h3', { text: this.image.name });
+
+    // Image type badge
+    const typeBadge = infoBody.createEl('div', { cls: 'image-detail-type-badge' });
+    typeBadge.addClass(this.image.imageType === 'local' ? 'badge-local' : 'badge-remote');
+    typeBadge.textContent = this.image.imageType === 'local' ? '本地图片' : 'GitHub图片';
 
     // Details
     const detailsList = infoBody.createEl('div', { cls: 'image-detail-list' });

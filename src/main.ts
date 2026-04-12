@@ -77,7 +77,7 @@ export default class GitHubImageUploaderPlugin extends Plugin {
     // Add command to open image gallery
     this.addCommand({
       id: 'github-image-uploader-gallery',
-      name: '打开Github图片库',
+      name: '打开图片库',
       callback: () => {
         this.app.workspace.getLeaf('split').setViewState({
           type: GALLERY_VIEW_TYPE,
