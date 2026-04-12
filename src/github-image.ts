@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, setIcon } from 'obsidian';
+import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, TFile, setIcon } from 'obsidian';
 import type GitHubImageUploaderPlugin from './main';
 
 /**
@@ -814,9 +814,17 @@ export class GalleryView extends ItemView {
 
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-    titleContainer.createEl('h2', { text: 'Github图片库' });
-    
-    const refreshBtn = header.createEl('button', { cls: 'gallery-refresh-btn' });
+    titleContainer.createEl('span', { text: '' });
+
+    // Stats container (will be populated after data loads)
+    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
+
+    // Button container on the right
+    const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
+
+    const { gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const githubLinkUrl = `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePath}`;
+    const refreshBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
     setIcon(refreshBtn, 'refresh-cw');
     refreshBtn.title = '刷新Github图片库';
     refreshBtn.addEventListener('click', async () => {
@@ -826,6 +834,13 @@ export class GalleryView extends ItemView {
       } finally {
         refreshBtn.disabled = false;
       }
+    });
+
+    const githubLinkBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
+    setIcon(githubLinkBtn, 'github');
+    githubLinkBtn.title = '在浏览器中打开Github文件夹';
+    githubLinkBtn.addEventListener('click', () => {
+      window.open(githubLinkUrl, '_blank');
     });
 
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '加载中...' });
@@ -843,7 +858,9 @@ export class GalleryView extends ItemView {
         return;
       }
 
-      this.createInfoBar(container);
+      // Update stats in header after data loads
+      statsContainer.innerHTML = '';
+      statsContainer.createEl('span', { text: `共 ${this.allImages.length} 张图片` });
 
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
       this.loadMoreImages();
@@ -864,10 +881,39 @@ export class GalleryView extends ItemView {
     this.currentPage = 0;
     const container = this.containerEl.children[1] as HTMLElement;
     
-    // Clear everything except header
-    const header = container.querySelector('.gallery-view-header');
+    // Clear everything and rebuild header
     container.empty();
-    if (header) container.appendChild(header);
+
+    const header = container.createEl('div', { cls: 'gallery-view-header' });
+    const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
+    titleContainer.createEl('span', { text: '' });
+
+    // Stats container (will be populated after data loads)
+    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
+
+    // Button container on the right
+    const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
+
+    const { gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const githubLinkUrl = `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePath}`;
+    const refreshBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
+    setIcon(refreshBtn, 'refresh-cw');
+    refreshBtn.title = '刷新Github图片库';
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      try {
+        await this.refreshGallery();
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    });
+
+    const githubLinkBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
+    setIcon(githubLinkBtn, 'github');
+    githubLinkBtn.title = '在浏览器中打开Github文件夹';
+    githubLinkBtn.addEventListener('click', () => {
+      window.open(githubLinkUrl, '_blank');
+    });
 
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '刷新中...' });
 
@@ -884,7 +930,9 @@ export class GalleryView extends ItemView {
         return;
       }
 
-      this.createInfoBar(container);
+      // Update stats in header after data loads
+      statsContainer.innerHTML = '';
+      statsContainer.createEl('span', { text: `共 ${this.allImages.length} 张图片` });
 
       this.galleryGrid = container.createEl('div', { cls: 'gallery-grid' });
       this.loadMoreImages();
@@ -972,6 +1020,11 @@ export class GalleryView extends ItemView {
         // Timeout to allow UI to update
         setTimeout(() => this.loadMoreImages(), 100);
       });
+    } else if (this.displayedImages.length > 0) {
+      this.loadMoreBtn = this.galleryGrid.createEl('div', {
+        cls: 'gallery-load-more-trigger gallery-load-more-end',
+        text: '已加载所有图片',
+      });
     }
   }
   
@@ -984,32 +1037,8 @@ export class GalleryView extends ItemView {
       const img = imageContainer.createEl('img', { cls: 'gallery-image' });
       img.src = image.url;
       img.alt = image.name;
+      img.title = image.name;
       img.addEventListener('click', () => this.openImageDetail(image));
-
-      const infoSection = card.createEl('div', { cls: 'gallery-card-info' });
-      const nameEl = infoSection.createEl('div', { cls: 'gallery-filename', text: image.name });
-      nameEl.title = image.name;
-
-      const detailsEl = infoSection.createEl('div', { cls: 'gallery-details' });
-      detailsEl.innerHTML = `
-        <div class="gallery-detail-row"><span class="detail-label">大小:</span><span class="detail-value">${this.formatBytes(image.size)}</span></div>
-        <div class="gallery-detail-row"><span class="detail-label">上传:</span><span class="detail-value">${this.formatDate(image.date)}</span></div>
-      `;
-
-      const copyBtn = infoSection.createEl('button', { cls: 'gallery-copy-btn' });
-      setIcon(copyBtn, 'clipboard');
-      copyBtn.appendText(' 复制链接');
-      copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(image.url);
-        new Notice('已复制到剪贴板');
-      });
-  }
-
-  private createInfoBar(container: HTMLElement) {
-    const infoBar = container.createEl('div', { cls: 'gallery-info-bar' });
-    infoBar.createEl('span', { text: `共 ${this.allImages.length} 张图片` });
-    infoBar.createEl('span', { text: `总大小: ${this.formatBytes(this.getTotalSize())}` });
-    infoBar.createEl('span', { text: '分组: 今天 / 近7天 / 近30天 / 更早' });
   }
 
   private createGroupHeader(groupLabel: string) {
@@ -1217,12 +1246,13 @@ class ImageDetailModal extends Modal {
 
     // Info panel (bottom section)
     const infoPanel = contentEl.createEl('div', { cls: 'image-detail-info' });
+    const infoBody = infoPanel.createEl('div', { cls: 'image-detail-body' });
 
     // Filename
-    const nameEl = infoPanel.createEl('h3', { text: this.image.name });
+    infoBody.createEl('h3', { text: this.image.name });
 
     // Details
-    const detailsList = infoPanel.createEl('div', { cls: 'image-detail-list' });
+    const detailsList = infoBody.createEl('div', { cls: 'image-detail-list' });
 
     const detailRow1 = detailsList.createEl('div', { cls: 'detail-row' });
     detailRow1.innerHTML = `<span class="detail-label">大小:</span><span class="detail-value">${this.formatBytes(this.image.size)}</span>`;
@@ -1230,10 +1260,12 @@ class ImageDetailModal extends Modal {
     const detailRow2 = detailsList.createEl('div', { cls: 'detail-row' });
     detailRow2.innerHTML = `<span class="detail-label">上传:</span><span class="detail-value">${this.image.date.toLocaleString('zh-CN')}</span>`;
 
+    this.renderReferenceNotesSection(infoBody);
+
     // Action buttons
     const buttonGroup = infoPanel.createEl('div', { cls: 'image-detail-actions' });
 
-    const copyBtn = buttonGroup.createEl('button', { cls: 'action-btn copy-btn' });
+    const copyBtn = buttonGroup.createEl('button', { cls: 'action-btn image-detail-link-btn' });
     setIcon(copyBtn, 'clipboard');
     copyBtn.appendText(' 链接');
     copyBtn.addEventListener('click', () => {
@@ -1248,9 +1280,9 @@ class ImageDetailModal extends Modal {
       }, 2000);
     });
 
-    const copyMarkdownBtn = buttonGroup.createEl('button', { cls: 'action-btn markdown-btn' });
+    const copyMarkdownBtn = buttonGroup.createEl('button', { cls: 'action-btn image-detail-markdown-btn' });
     setIcon(copyMarkdownBtn, 'file-text');
-    copyMarkdownBtn.appendText(' MD');
+    copyMarkdownBtn.appendText(' Markdown');
     copyMarkdownBtn.addEventListener('click', () => {
       const markdown = `![image](${this.image.url})`;
       navigator.clipboard.writeText(markdown);
@@ -1260,18 +1292,46 @@ class ImageDetailModal extends Modal {
       setTimeout(() => {
         copyMarkdownBtn.empty();
         setIcon(copyMarkdownBtn, 'file-text');
-        copyMarkdownBtn.appendText(' MD');
+        copyMarkdownBtn.appendText(' Markdown');
       }, 2000);
     });
 
-    const openBtn = buttonGroup.createEl('button', { cls: 'action-btn open-btn' });
-    setIcon(openBtn, 'external-link');
-    openBtn.appendText(' 打开');
-    openBtn.addEventListener('click', () => {
-      window.open(this.image.url, '_blank');
+    const copyImageBtn = buttonGroup.createEl('button', { cls: 'action-btn image-detail-copy-image-btn' });
+    setIcon(copyImageBtn, 'image');
+    copyImageBtn.appendText(' 复制');
+    copyImageBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch(this.image.url, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`获取图片失败: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        if (!('clipboard' in navigator) || typeof ClipboardItem === 'undefined') {
+          throw new Error('当前环境不支持复制图片到剪切板');
+        }
+
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [blob.type]: blob,
+          }),
+        ]);
+
+        copyImageBtn.empty();
+        setIcon(copyImageBtn, 'check');
+        copyImageBtn.appendText(' 已复制');
+        setTimeout(() => {
+          copyImageBtn.empty();
+          setIcon(copyImageBtn, 'image');
+          copyImageBtn.appendText(' 复制');
+        }, 2000);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        new Notice('复制图片失败: ' + msg);
+      }
     });
 
-    const deleteBtn = buttonGroup.createEl('button', { cls: 'action-btn delete-btn' });
+    const deleteBtn = buttonGroup.createEl('button', { cls: 'action-btn image-detail-delete-btn' });
     setIcon(deleteBtn, 'trash-2');
     deleteBtn.appendText(' 删除');
     deleteBtn.addEventListener('click', async () => {
@@ -1299,6 +1359,129 @@ class ImageDetailModal extends Modal {
         }
       }
     });
+  }
+
+  private renderReferenceNotesSection(container: HTMLElement) {
+    const section = container.createEl('div', { cls: 'image-reference-section' });
+    const header = section.createEl('div', { cls: 'image-reference-header' });
+    header.createEl('div', { cls: 'image-reference-title', text: '引用此图片的笔记' });
+
+    const countEl = header.createEl('div', {
+      cls: 'image-reference-count',
+      text: '搜索中...',
+    });
+
+    const listEl = section.createEl('div', { cls: 'image-reference-list' });
+    listEl.createEl('div', {
+      cls: 'image-reference-loading',
+      text: '正在查找引用此图片的笔记...',
+    });
+
+    void this.populateReferenceNotes(listEl, countEl);
+  }
+
+  private async populateReferenceNotes(listEl: HTMLElement, countEl: HTMLElement) {
+    try {
+      const references = await this.findReferencingNotes();
+      listEl.empty();
+
+      if (references.length === 0) {
+        countEl.textContent = '0 篇';
+        listEl.createEl('div', {
+          cls: 'image-reference-empty',
+          text: '还没有笔记引用这张图片',
+        });
+        return;
+      }
+
+      countEl.textContent = `${references.length} 篇`;
+
+      references.forEach((reference) => {
+        const item = listEl.createEl('button', { cls: 'image-reference-item' });
+        item.type = 'button';
+
+        const itemHeader = item.createEl('div', { cls: 'image-reference-item-header' });
+        const iconEl = itemHeader.createSpan({ cls: 'image-reference-item-icon' });
+        setIcon(iconEl, 'file-text');
+        itemHeader.createEl('span', {
+          cls: 'image-reference-name',
+          text: reference.file.basename,
+        });
+
+        item.createEl('div', {
+          cls: 'image-reference-path',
+          text: reference.file.path,
+        });
+
+        item.createEl('div', {
+          cls: 'image-reference-meta',
+          text: `引用 ${reference.matchCount} 次`,
+        });
+
+        item.addEventListener('click', async () => {
+          const leaf = this.app.workspace.getLeaf(false);
+          await leaf.openFile(reference.file);
+          this.close();
+        });
+      });
+    } catch (error) {
+      listEl.empty();
+      countEl.textContent = '读取失败';
+      const msg = error instanceof Error ? error.message : String(error);
+      listEl.createEl('div', {
+        cls: 'image-reference-error',
+        text: '引用笔记读取失败: ' + msg,
+      });
+    }
+  }
+
+  private async findReferencingNotes(): Promise<Array<{ file: TFile; matchCount: number }>> {
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    const targets = Array.from(new Set([
+      this.image.url,
+      encodeURI(this.image.url),
+      decodeURIComponent(this.image.url),
+    ])).filter(Boolean);
+
+    const matches = await Promise.all(
+      markdownFiles.map(async (file) => {
+        const content = await this.app.vault.cachedRead(file);
+        const matchCount = this.countReferenceMatches(content, targets);
+
+        if (matchCount === 0) {
+          return null;
+        }
+
+        return { file, matchCount };
+      })
+    );
+
+    return matches
+      .filter((item): item is { file: TFile; matchCount: number } => item !== null)
+      .sort((a, b) => b.matchCount - a.matchCount || a.file.path.localeCompare(b.file.path, 'zh-CN'));
+  }
+
+  private countReferenceMatches(content: string, targets: string[]): number {
+    return targets.reduce((maxCount, target) => {
+      if (!target) {
+        return maxCount;
+      }
+
+      let count = 0;
+      let startIndex = 0;
+
+      while (startIndex < content.length) {
+        const matchIndex = content.indexOf(target, startIndex);
+        if (matchIndex === -1) {
+          break;
+        }
+
+        count++;
+        startIndex = matchIndex + target.length;
+      }
+
+      return Math.max(maxCount, count);
+    }, 0);
   }
 
   private async deleteImage(): Promise<void> {
