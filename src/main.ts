@@ -7,6 +7,7 @@ import {
   setIcon,
 } from 'obsidian';
 import { GitHubImageHosting, ImageGalleryModal, GALLERY_VIEW_TYPE, GalleryView } from './github-image';
+import { ReplacementLogModal } from './local-images';
 
 // ── Types & defaults ────────────────────────────────────────────────────────
 
@@ -39,6 +40,8 @@ interface GitHubImageUploaderSettings {
   enableImageWidth: boolean;
   /** Default image width in pixels (0 means auto/no width specified) */
   imageWidth: number;
+  /** Enable replacement log to track local->remote image replacements */
+  enableReplacementLog: boolean;
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -56,15 +59,30 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   compressionQualityStep: 0.05,
   enableImageWidth: true,
   imageWidth: 300,
+  enableReplacementLog: true,
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
 
+export interface ReplacementLogEntry {
+  localPath: string;
+  remoteUrl: string;
+  timestamp: Date;
+  affectedNotes: Array<{
+    path: string;
+    basename: string;
+  }>;
+  success: boolean;
+  error?: string;
+}
+
 export default class GitHubImageUploaderPlugin extends Plugin {
   settings!: GitHubImageUploaderSettings;
+  replacementLogs: ReplacementLogEntry[] = [];
 
   async onload() {
     await this.loadSettings();
+    await this.loadReplacementLogs();
     this.addSettingTab(new GitHubImageUploaderSettingTab(this.app, this));
 
     // Register gallery view
@@ -83,6 +101,16 @@ export default class GitHubImageUploaderPlugin extends Plugin {
           type: GALLERY_VIEW_TYPE,
           active: true,
         });
+      },
+    });
+
+    // Add command to view replacement logs
+    this.addCommand({
+      id: 'github-image-uploader-replacement-log',
+      name: '查看替换日志',
+      callback: () => {
+        const logModal = new ReplacementLogModal(this.app, this.replacementLogs);
+        logModal.open();
       },
     });
 
@@ -109,6 +137,33 @@ export default class GitHubImageUploaderPlugin extends Plugin {
 
   onunload() {
     console.log('GitHub Image Uploader plugin unloaded');
+  }
+
+  async loadReplacementLogs() {
+    const data = await this.loadData();
+    if (data?.replacementLogs) {
+      this.replacementLogs = data.replacementLogs.map((log: any) => ({
+        ...log,
+        timestamp: new Date(log.timestamp),
+      }));
+    }
+  }
+
+  async saveReplacementLogs() {
+    const data = await this.loadData();
+    await this.saveData({
+      ...data,
+      replacementLogs: this.replacementLogs,
+    });
+  }
+
+  addReplacementLog(log: ReplacementLogEntry) {
+    this.replacementLogs.unshift(log);
+    // Keep only last 100 entries
+    if (this.replacementLogs.length > 100) {
+      this.replacementLogs = this.replacementLogs.slice(0, 100);
+    }
+    void this.saveReplacementLogs();
   }
 
   async loadSettings() {
@@ -379,6 +434,73 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
       '<br/><strong>建议：</strong>通常只需指定宽度，高度会按比例自动调整';
 
+    // ── Replacement Log ────────────────────────────────────────────────────
+    const replacementLogH3 = containerEl.createEl('h3');
+    setIcon(replacementLogH3, 'clipboard-list');
+    replacementLogH3.appendText(' 替换日志');
+
+    new Setting(containerEl)
+      .setName('启用替换日志')
+      .setDesc('上传本地图片到 GitHub 并替换笔记链接时，记录替换日志')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableReplacementLog)
+          .onChange(async value => {
+            this.plugin.settings.enableReplacementLog = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // Recent replacement logs (show last 10)
+    const recentLogsContainer = containerEl.createDiv();
+    recentLogsContainer.style.cssText = 'margin-top: 12px;';
+
+    const recentLogsHeader = recentLogsContainer.createEl('div', {
+      cls: 'recent-logs-header',
+      text: '最近替换记录',
+    });
+    recentLogsHeader.style.cssText = 'font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted);';
+
+    const recentLogsList = recentLogsContainer.createEl('div', { cls: 'recent-logs-list' });
+    recentLogsList.style.cssText = 'background: var(--background-secondary); border-radius: 6px; padding: 8px; max-height: 300px; overflow-y: auto;';
+
+    const logs = this.plugin.replacementLogs.slice(0, 10);
+
+    if (logs.length === 0) {
+      recentLogsList.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 12px;">暂无替换记录</div>';
+    } else {
+      for (const log of logs) {
+        const logItem = recentLogsList.createEl('div', { cls: 'recent-log-item' });
+        logItem.style.cssText = 'padding: 8px 0; border-bottom: 1px solid var(--background-modifier-border);';
+        logItem.style.borderBottom = '1px solid var(--background-modifier-border)';
+
+        const logHeader = logItem.createEl('div', { cls: 'recent-log-header' });
+        logHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;';
+
+        const logStatus = logHeader.createEl('span', {
+          cls: 'recent-log-status',
+          text: log.success ? '✓ 成功' : '✗ 失败',
+        });
+        logStatus.style.cssText = `font-size: 12px; color: ${log.success ? 'var(--text-success)' : 'var(--text-error)'};`;
+
+        const logTime = logHeader.createEl('span', {
+          cls: 'recent-log-time',
+          text: log.timestamp.toLocaleString('zh-CN'),
+        });
+        logTime.style.cssText = 'font-size: 11px; color: var(--text-muted);';
+
+        const logPaths = logItem.createEl('div', { cls: 'recent-log-paths' });
+        logPaths.style.cssText = 'font-size: 12px; word-break: break-all;';
+        logPaths.innerHTML = `<span style="color: var(--text-muted);">${this.escapeHtml(log.localPath)}</span> <span style="color: var(--text-muted);">→</span> <span style="color: var(--interactive-accent);">${log.remoteUrl ? this.escapeHtml(log.remoteUrl.substring(log.remoteUrl.lastIndexOf('/') + 1)) : '-'}</span>`;
+
+        if (log.affectedNotes.length > 0) {
+          const logNotes = logItem.createEl('div', { cls: 'recent-log-notes' });
+          logNotes.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 4px;';
+          logNotes.textContent = `影响 ${log.affectedNotes.length} 篇笔记: ${log.affectedNotes.map(n => n.basename).join(', ')}`;
+        }
+      }
+    }
+
     // ── Info Section ───────────────────────────────────────────────────────
     const infoH3 = containerEl.createEl('h3');
     setIcon(infoH3, 'book-open');
@@ -394,5 +516,11 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
       '• GitHub Token：需要有 Contents 仓库权限（读写）<br/>' +
       '• 用户名和仓库名：必须正确配置才能上传<br/>' +
       '• 分支名：通常为 main 或 master';
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 }

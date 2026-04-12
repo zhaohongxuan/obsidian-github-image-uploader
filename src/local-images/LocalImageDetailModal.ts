@@ -1,7 +1,10 @@
 import { App, Modal, Notice, setIcon, TFile } from 'obsidian';
 import type GitHubImageUploaderPlugin from '../main';
+import type { ReplacementLogEntry } from '../main';
 import type { LocalImage, ImageSearch } from './index';
 import type { ReferenceMatch, ReplaceResult } from './index';
+import { UploadConfirmModal } from './index';
+import { UploadProgressModal } from '../github-image';
 
 /**
  * Modal for viewing local image details with actions:
@@ -16,7 +19,7 @@ export class LocalImageDetailModal extends Modal {
     private image: LocalImage,
     private plugin: GitHubImageUploaderPlugin,
     private imageSearch: ImageSearch,
-    private onImageDeleted?: () => void
+    private onImageDeleted?: (imagePath: string) => void
   ) {
     super(app);
   }
@@ -45,6 +48,10 @@ export class LocalImageDetailModal extends Modal {
 
     // Details
     const detailsList = infoBody.createEl('div', { cls: 'local-image-detail-list' });
+
+    const detailRowType = detailsList.createEl('div', { cls: 'detail-row' });
+    const ext = this.image.name.split('.').pop()?.toUpperCase() || '未知';
+    detailRowType.innerHTML = `<span class="detail-label">类型:</span><span class="detail-value">${ext}</span>`;
 
     const detailRow1 = detailsList.createEl('div', { cls: 'detail-row' });
     detailRow1.innerHTML = `<span class="detail-label">大小:</span><span class="detail-value">${this.formatBytes(this.image.size)}</span>`;
@@ -87,7 +94,7 @@ export class LocalImageDetailModal extends Modal {
           await this.app.vault.delete(this.image.file);
           new Notice('图片已删除');
           this.close();
-          this.onImageDeleted?.();
+          this.onImageDeleted?.(this.image.path);
         } catch (error) {
           new Notice('删除失败: ' + (error instanceof Error ? error.message : String(error)));
         }
@@ -97,7 +104,7 @@ export class LocalImageDetailModal extends Modal {
     // Upload to GitHub button
     const uploadBtn = buttonGroup.createEl('button', { cls: 'action-btn local-image-detail-upload-btn' });
     setIcon(uploadBtn, 'upload');
-    uploadBtn.appendText(' 上传到 GitHub');
+    uploadBtn.appendText(' 上传并替换');
     uploadBtn.addEventListener('click', async () => {
       await this.handleUploadAndReplace();
     });
@@ -178,7 +185,7 @@ export class LocalImageDetailModal extends Modal {
   }
 
   private async handleUploadAndReplace() {
-    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const { gitHubToken, gitHubOwner, gitHubRepo, compressionThreshold, enableImageCompression } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
       new Notice('GitHub 配置不完整，请先在设置中配置');
@@ -188,40 +195,66 @@ export class LocalImageDetailModal extends Modal {
     // Find referencing notes first
     const references = await this.imageSearch.findReferencingNotes(this.image.path);
 
-    const confirmMsg = references.length > 0
-      ? `将上传图片到 GitHub 并替换 ${references.length} 篇笔记中的引用链接。是否继续？`
-      : '将上传图片到 GitHub。是否继续？';
+    // Show upload confirmation dialog
+    const confirmModal = new UploadConfirmModal(
+      this.app,
+      this.image.name,
+      this.image.size,
+      compressionThreshold,
+      enableImageCompression,
+      references
+    );
+    confirmModal.open();
 
-    if (!confirm(confirmMsg)) {
+    const result = await confirmModal.getResult();
+
+    // User cancelled
+    if (!result) {
       return;
     }
 
+    const { compress } = result;
+
+    // Show upload progress modal
+    const progressModal = new UploadProgressModal(this.app);
+    progressModal.open();
+
     try {
       // Read local file binary
-      const binary = await this.app.vault.readBinary(this.image.file);
+      let blob = await this.app.vault.readBinary(this.image.file);
       const mimeType = this.getMimeType(this.image.name);
-      const blob = new Blob([binary], { type: mimeType });
+
+      // If compression is requested and enabled
+      if (compress && enableImageCompression) {
+        blob = await this.compressImage(blob, mimeType);
+      }
+
+      const fileBlob = new Blob([blob], { type: mimeType });
 
       // Generate filename with date/time prefix
       const filename = this.generateImageFilename(mimeType);
 
       // Upload to GitHub
-      const githubUrl = await this.uploadToGitHub(blob, filename);
+      const githubUrl = await this.uploadToGitHub(fileBlob, filename);
+
+      progressModal.updateStatus('上传成功！', 'success');
+      setTimeout(() => progressModal.close(), 1500);
 
       // Replace references in notes with markdown format
+      let replaceResult: ReplaceResult | null = null;
       if (references.length > 0) {
-        const result = await this.replaceReferencesWithMarkdown(
+        replaceResult = await this.replaceReferencesWithMarkdown(
           this.image.path,
           githubUrl,
           references.map(r => r.file)
         );
 
         let message = `上传成功！`;
-        if (result.success > 0) {
-          message += ` 已替换 ${result.success} 篇笔记`;
+        if (replaceResult.success > 0) {
+          message += ` 已替换 ${replaceResult.success} 篇笔记`;
         }
-        if (result.failed > 0) {
-          message += `，替换失败 ${result.failed} 篇`;
+        if (replaceResult.failed > 0) {
+          message += `，替换失败 ${replaceResult.failed} 篇`;
         }
         new Notice(message);
       } else {
@@ -232,19 +265,60 @@ export class LocalImageDetailModal extends Modal {
       const markdownLink = this.generateMarkdownImageLink(githubUrl);
       navigator.clipboard.writeText(markdownLink);
       new Notice('Markdown 链接已复制到剪贴板');
-      new Notice('GitHub URL 已复制到剪贴板');
+
+      // Log the replacement if enabled
+      if (this.plugin.settings.enableReplacementLog) {
+        const logEntry: ReplacementLogEntry = {
+          localPath: this.image.path,
+          remoteUrl: githubUrl,
+          timestamp: new Date(),
+          affectedNotes: references.map(r => ({
+            path: r.file.path,
+            basename: r.file.basename,
+          })),
+          success: replaceResult ? replaceResult.failed === 0 : true,
+          error: replaceResult && replaceResult.failed > 0
+            ? `Failed to replace ${replaceResult.failed} notes`
+            : undefined,
+        };
+        this.plugin.addReplacementLog(logEntry);
+      }
 
       this.close();
 
       // Optionally delete local file after successful upload and replace
       if (references.length > 0 && confirm('是否删除本地图片文件？')) {
         await this.app.vault.delete(this.image.file);
-        this.onImageDeleted?.();
+        this.onImageDeleted?.(this.image.path);
       }
 
     } catch (error) {
-      new Notice('上传失败: ' + (error instanceof Error ? error.message : String(error)));
+      progressModal.updateStatus('上传失败: ' + (error instanceof Error ? error.message : String(error)), 'error');
+      setTimeout(() => progressModal.close(), 2000);
+
+      // Log the failure if enabled
+      if (this.plugin.settings.enableReplacementLog) {
+        const logEntry: ReplacementLogEntry = {
+          localPath: this.image.path,
+          remoteUrl: '',
+          timestamp: new Date(),
+          affectedNotes: references.map(r => ({
+            path: r.file.path,
+            basename: r.file.basename,
+          })),
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        this.plugin.addReplacementLog(logEntry);
+      }
     }
+  }
+
+  private async compressImage(binary: ArrayBuffer, mimeType: string): Promise<ArrayBuffer> {
+    // Simple compression: for now just return the original
+    // Full compression would require canvas-based resizing which is complex
+    // This is a placeholder - the actual compression logic would go here
+    return binary;
   }
 
   private async uploadToGitHub(blob: Blob, filename: string): Promise<string> {

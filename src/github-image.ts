@@ -676,7 +676,7 @@ class ImageConfirmModal extends Modal {
 /**
  * Modal dialog for showing upload progress
  */
-class UploadProgressModal extends Modal {
+export class UploadProgressModal extends Modal {
   private statusEl: HTMLElement | null = null;
   private progressBarEl: HTMLElement | null = null;
   private messageEl: HTMLElement | null = null;
@@ -790,6 +790,11 @@ export class GalleryView extends ItemView {
   private currentFilter: 'all' | 'local' | 'remote' = 'all';
   private filterContainer: HTMLElement | null = null;
 
+  // Remote image cache with ETag support
+  private remoteImageCache: UnifiedImage[] = [];
+  private remoteImageShaCache: Map<string, string> = new Map(); // filename -> sha
+  private lastEtag: string | null = null;
+
   constructor(leaf: WorkspaceLeaf, plugin: GitHubImageUploaderPlugin) {
     super(leaf);
     this.plugin = plugin;
@@ -902,16 +907,20 @@ export class GalleryView extends ItemView {
     this.groupCounts = new Map();
     this.currentPage = 0;
     const container = this.containerEl.children[1] as HTMLElement;
-    
+
     // Clear everything and rebuild header
     container.empty();
 
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
-    titleContainer.createEl('span', { text: '' });
+
+    // Filter dropdown and stats in a row
+    const filterRow = titleContainer.createEl('div', { cls: 'gallery-header-filter-row' });
+    this.filterContainer = filterRow.createEl('div', { cls: 'gallery-header-filters' });
+    this.createFilterButtons();
 
     // Stats container (will be populated after data loads)
-    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
+    const statsContainer = filterRow.createEl('div', { cls: 'gallery-header-stats' });
 
     // Button container on the right
     const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
@@ -1159,10 +1168,14 @@ export class GalleryView extends ItemView {
   }
 
   private getFilteredImages(): UnifiedImage[] {
-    if (this.currentFilter === 'all') {
-      return this.allImages;
+    let images = this.allImages;
+
+    // Apply type filter
+    if (this.currentFilter !== 'all') {
+      images = images.filter(img => img.imageType === this.currentFilter);
     }
-    return this.allImages.filter(img => img.imageType === this.currentFilter);
+
+    return images;
   }
 
   private async fetchImagesFromGitHub(): Promise<UnifiedImage[]> {
@@ -1179,15 +1192,28 @@ export class GalleryView extends ItemView {
     apiUrl.searchParams.set('ref', gitHubBranch);
 
     try {
+      // Use ETag conditional request if we have a cached etag
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${gitHubToken}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      };
+
+      if (this.lastEtag) {
+        headers['If-None-Match'] = this.lastEtag;
+      }
+
       const response = await fetch(apiUrl.toString(), {
         method: 'GET',
         cache: 'no-store',
-        headers: {
-          'Accept': 'application/vnd.github+json',
-          'Authorization': `Bearer ${gitHubToken}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
+        headers,
       });
+
+      // 304 Not Modified - cache is still valid
+      if (response.status === 304) {
+        console.log('[Gallery] ETag hit, using cached data');
+        return this.remoteImageCache;
+      }
 
       if (!response.ok) {
         if (response.status === 404) return [];
@@ -1195,25 +1221,62 @@ export class GalleryView extends ItemView {
         throw new Error(`GitHub API ${response.status}: ${JSON.stringify(errData)}`);
       }
 
+      // Save ETag for next request
+      const etag = response.headers.get('ETag');
+      if (etag) {
+        this.lastEtag = etag;
+      }
+
       const data = await response.json();
 
-      return Array.isArray(data)
-        ? data
-            .filter((file: any) => this.isImageFile(file.name))
-            .map((file: any) => ({
-              name: file.name,
-              size: file.size,
-              url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${file.name}`,
-              date: this.resolveImageDate(file),
-              imageType: 'remote' as const,
-            }))
-            .sort((a, b) => {
-              const dateDiff = b.date.getTime() - a.date.getTime();
-              return dateDiff !== 0
-                ? dateDiff
-                : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-            })
-        : [];
+      if (!Array.isArray(data)) {
+        return [];
+      }
+
+      // Build SHA map for new data (only for image files)
+      const newShaMap = new Map<string, string>();
+      const imageFiles = data.filter((file: any) => this.isImageFile(file.name));
+      for (const file of imageFiles) {
+        newShaMap.set(file.name, file.sha);
+      }
+
+      // Compare with cached SHA map - if identical, return cached data
+      if (this.remoteImageShaCache.size === newShaMap.size) {
+        let identical = true;
+        for (const [name, sha] of newShaMap) {
+          if (this.remoteImageShaCache.get(name) !== sha) {
+            identical = false;
+            break;
+          }
+        }
+        if (identical && this.remoteImageCache.length > 0) {
+          console.log('[Gallery] SHA cache hit, using cached data');
+          return this.remoteImageCache;
+        }
+      }
+
+      // Process new data
+      const newImages: UnifiedImage[] = imageFiles
+        .map((file: any) => ({
+          name: file.name,
+          size: file.size,
+          url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${file.name}`,
+          date: this.resolveImageDate(file),
+          imageType: 'remote' as const,
+        }))
+        .sort((a, b) => {
+          const dateDiff = b.date.getTime() - a.date.getTime();
+          return dateDiff !== 0
+            ? dateDiff
+            : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+      // Update cache
+      this.remoteImageShaCache = newShaMap;
+      this.remoteImageCache = newImages;
+      console.log('[Gallery] Cache updated, count:', newImages.length);
+
+      return newImages;
     } catch (error) {
       console.error("Error fetching images from GitHub:", error);
       throw error;
@@ -1339,14 +1402,129 @@ export class GalleryView extends ItemView {
           mtime: image.date,
           file: image.file!,
         };
-        new LocalImageDetailModal(this.app, localImage, this.plugin, imageSearch, () => {
-          this.refreshGallery();
+        new LocalImageDetailModal(this.app, localImage, this.plugin, imageSearch, (imagePath: string) => {
+          this.removeImageByPath(imagePath);
         }).open();
       });
     } else {
-      new ImageDetailModal(this.app, image, this.plugin, () => {
-        this.refreshGallery();
+      new ImageDetailModal(this.app, image, this.plugin, (deletedImage: UnifiedImage) => {
+        this.removeImage(deletedImage);
       }).open();
+    }
+  }
+
+  private removeImageByPath(imagePath: string) {
+    // Find the image in allImages by path
+    const image = this.allImages.find(img => img.path === imagePath);
+    if (image) {
+      this.removeImage(image);
+    } else {
+      // Fallback to full refresh if image not found
+      this.refreshGallery();
+    }
+  }
+
+  private removeImage(image: UnifiedImage) {
+    // Remove from allImages
+    const index = this.allImages.indexOf(image);
+    if (index > -1) {
+      this.allImages.splice(index, 1);
+    }
+
+    // Remove from displayedImages
+    const displayedIndex = this.displayedImages.indexOf(image);
+    if (displayedIndex > -1) {
+      this.displayedImages.splice(displayedIndex, 1);
+    }
+
+    // Find and remove the card element from DOM
+    const cards = this.galleryGrid?.querySelectorAll('.gallery-card');
+    if (cards) {
+      cards.forEach((card) => {
+        const img = card.querySelector('img');
+        if (img && img.title === image.name) {
+          card.remove();
+        }
+      });
+    }
+
+    // Update group counts
+    this.groupCounts = this.buildGroupCounts(this.allImages);
+
+    // Update stats
+    const statsContainer = this.containerEl.querySelector('.gallery-header-stats');
+    if (statsContainer) {
+      statsContainer.innerHTML = '';
+      statsContainer.createEl('span', { text: `共 ${this.allImages.length} 张图片` });
+    }
+
+    // Rebuild group headers if needed (when first image of a group is removed)
+    this.rebuildGroupHeadersIfNeeded();
+
+    // Update "load more" area
+    this.updateLoadMoreArea();
+
+    // Show empty state if no images
+    if (this.allImages.length === 0) {
+      const emptyEl = this.containerEl.createEl('div', { cls: 'gallery-empty' });
+      const emptyIconEl = emptyEl.createSpan({ cls: 'gallery-empty-icon' });
+      setIcon(emptyIconEl, 'inbox');
+      emptyEl.appendText(' 还没有图片');
+    }
+  }
+
+  private rebuildGroupHeadersIfNeeded() {
+    if (!this.galleryGrid) return;
+
+    // Get all group headers
+    const headers = this.galleryGrid.querySelectorAll('.gallery-group-header');
+    const groupCounts = this.buildGroupCounts(this.displayedImages);
+
+    headers.forEach((header) => {
+      const titleEl = header.querySelector('.gallery-group-title');
+      if (titleEl) {
+        const groupName = titleEl.textContent || '';
+        const count = groupCounts.get(groupName) || 0;
+        const metaEl = header.querySelector('.gallery-group-meta');
+        if (metaEl) {
+          metaEl.textContent = `${count} 张`;
+        }
+        // Remove header if no images in this group
+        if (count === 0) {
+          header.remove();
+        }
+      }
+    });
+  }
+
+  private updateLoadMoreArea() {
+    if (!this.galleryGrid) return;
+
+    // Remove existing load more area
+    const existingLoadMore = this.galleryGrid.querySelector('.gallery-load-more-trigger');
+    if (existingLoadMore) {
+      existingLoadMore.remove();
+    }
+
+    // Check if we need to show "load more"
+    const filteredImages = this.getFilteredImages();
+    const totalDisplayed = this.displayedImages.length;
+
+    if (totalDisplayed < filteredImages.length) {
+      const loadMoreBtn = this.galleryGrid.createEl('div', { cls: 'gallery-load-more-trigger' });
+      const button = loadMoreBtn.createEl('button', {
+        text: `加载更多 (${totalDisplayed}/${filteredImages.length})`
+      });
+      button.addEventListener('click', () => {
+        button.textContent = '加载中...';
+        button.disabled = true;
+        setTimeout(() => this.loadMoreImages(), 100);
+      });
+    } else if (totalDisplayed > 0) {
+      this.galleryGrid.createEl('div', {
+        cls: 'gallery-load-more-trigger gallery-load-more-end',
+        text: '已加载所有图片',
+      });
     }
   }
 }
@@ -1383,7 +1561,7 @@ class ImageDetailModal extends Modal {
     app: App,
     private image: UnifiedImage,
     private plugin: GitHubImageUploaderPlugin,
-    private onImageDeleted?: () => void
+    private onImageDeleted?: (deletedImage: UnifiedImage) => void
   ) {
     super(app);
   }
@@ -1515,7 +1693,7 @@ class ImageDetailModal extends Modal {
           new Notice('删除成功');
           // Call the callback to update cache
           if (this.onImageDeleted) {
-            this.onImageDeleted();
+            this.onImageDeleted(this.image);
           }
           this.close();
         } catch (error) {

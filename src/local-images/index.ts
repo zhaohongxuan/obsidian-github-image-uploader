@@ -11,3 +11,6 @@ export interface LocalImage {
 export { ImageSearch, type ReferenceMatch, type ReplaceResult } from './ImageSearch';
 export { LocalImagesView, LOCAL_IMAGES_VIEW_TYPE } from './LocalImagesView';
 export { LocalImageDetailModal } from './LocalImageDetailModal';
+export { UploadConfirmModal } from './UploadConfirmModal';
+export { ReplacementLogModal } from './ReplacementLogModal';
+export type { ReplacementLogEntry } from '../main';
