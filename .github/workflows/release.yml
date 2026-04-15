@@ -43,11 +43,35 @@ jobs:
         body: |
           # Release ${{ steps.tag_name.outputs.VERSION }}
 
-          See [CHANGELOG.md](./CHANGELOG.md) for details.
+          Obsidian 图片上传插件，让笔记中的图片管理变得简单。
+
+          ## 主要功能
+
+          ### 粘贴即上传
+          复制图片后按 `Ctrl+V` 或 `Cmd+V`，弹出上传确认框，选择存储位置后自动处理并插入 Markdown 链接。
+
+          ### GitHub 图床
+          将图片上传到指定的 GitHub 仓库，生成永久有效的原始文件链接。支持配置 CDN 或自定义域名。
+
+          ### 本地存储
+          图片可保存到 Vault 本地文件夹，使用相对路径，跨设备同步无忧，完全离线可用。
+
+          ### 统一图库
+          - 本地图片和 GitHub 图片统一展示
+          - 按时间分组浏览
+          - 图片详情查看，支持复制链接、在浏览器打开或删除
+          - 本地图片可直接上传到 GitHub，并自动替换笔记中的引用
+          - 显示每张图片被哪些笔记引用
+
+          ## 安装
+
+          1. 下载最新版本
+          2. 解压到 Vault 的 `.obsidian/plugins/github-image-uploader/` 目录
+          3. 重启 Obsidian，启用插件
 
           ## Files
-          - `main.js` - Plugin script
-          - `manifest.json` - Plugin metadata
-          - `styles.css` - Plugin styles
+          - `dist/main.js` - 插件脚本
+          - `manifest.json` - 插件元数据
+          - `styles.css` - 插件样式
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
