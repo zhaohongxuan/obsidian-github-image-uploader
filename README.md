@@ -1,5 +1,11 @@
 # GitHub Image Uploader
 
+[![](https://github.com/zhaohongxuan/obsidian-github-image-uploader/actions/workflows/build.yml/badge.svg)](https://github.com/zhaohongxuan/obsidian-github-image-uploader/actions/workflows/build.yml)
+[![Release Obsidian plugin](https://github.com/zhaohongxuan/obsidian-github-image-uploader/actions/workflows/release.yml/badge.svg)](https://github.com/zhaohongxuan/obsidian-github-image-uploader/actions/workflows/release.yml)
+[![GitHub license](https://badgen.net/github/license/zhaohongxuan/obsidian-github-image-uploader/)](https://github.com/zhaohongxuan/obsidian-github-image-uploader/blob/main/LICENSE)
+[![Github all releases](https://img.shields.io/github/downloads/zhaohongxuan/obsidian-github-image-uploader/total.svg)](https://github.com/zhaohongxuan/obsidian-github-image-uploader/releases/)
+[![GitHub latest release](https://badgen.net/github/release/zhaohongxuan/obsidian-github-image-uploader/)](https://github.com/zhaohongxuan/obsidian-github-image-uploader/releases/latest)
+
 Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitHub 或保存到本地，让笔记中的图片管理变得简单。
 
 ---
