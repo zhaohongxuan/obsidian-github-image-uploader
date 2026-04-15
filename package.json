@@ -1,6 +1,6 @@
 {
   "name": "obsidian-github-image-uploader",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Upload images to GitHub when pasting in Obsidian. Choose between cloud hosting or local storage.",
   "main": "dist/main.js",
   "scripts": {
