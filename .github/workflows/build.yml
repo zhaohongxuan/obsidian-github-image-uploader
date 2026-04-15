@@ -40,18 +40,18 @@ jobs:
 
     - name: Check build output
       run: |
-        if [ ! -f main.js ]; then
-          echo "❌ Build failed: main.js not generated"
+        if [ ! -f dist/main.js ]; then
+          echo "❌ Build failed: dist/main.js not generated"
           exit 1
         fi
         echo "✅ Build successful"
-        ls -lh main.js manifest.json styles.css
+        ls -lh dist/main.js manifest.json styles.css
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: plugin-artifacts
         path: |
-          main.js
+          dist/main.js
           manifest.json
           styles.css
