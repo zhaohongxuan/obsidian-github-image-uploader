@@ -20,8 +20,8 @@ interface GitHubImageUploaderSettings {
   gitHubOwner: string;
   /** GitHub repository name */
   gitHubRepo: string;
-  /** Path in repo to store images */
-  imagePath: string;
+  /** Paths in repo to store images (comma-separated in UI) */
+  imagePaths: string[];
   /** GitHub branch to upload to */
   gitHubBranch: string;
   /** Local folder to save images when not uploading to GitHub */
@@ -42,6 +42,8 @@ interface GitHubImageUploaderSettings {
   imageWidth: number;
   /** Enable replacement log to track local->remote image replacements */
   enableReplacementLog: boolean;
+  /** Gallery filter: 'all', 'local', or 'remote' */
+  galleryFilter: 'all' | 'local' | 'remote';
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -49,7 +51,7 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   gitHubToken: '',
   gitHubOwner: '',
   gitHubRepo: '',
-  imagePath: 'assets/images',
+  imagePaths: ['assets/images'],
   gitHubBranch: 'main',
   localFolder: 'assets',
   enableImageCompression: false,
@@ -60,6 +62,7 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   enableImageWidth: true,
   imageWidth: 300,
   enableReplacementLog: true,
+  galleryFilter: 'all',
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
@@ -205,8 +208,20 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
 
     // ── Main Toggle ────────────────────────────────────────────────────────
     const basicSettingsH3 = containerEl.createEl('h3');
-    setIcon(basicSettingsH3, 'image');
-    basicSettingsH3.appendText(' 基本设置');
+    basicSettingsH3.appendText('基本设置');
+
+    new Setting(containerEl)
+      .setName('本地图片文件夹')
+      .setDesc('选择"保存到本地"时，图片保存的文件夹路径')
+      .addText(text =>
+        text
+          .setPlaceholder('assets')
+          .setValue(this.plugin.settings.localFolder)
+          .onChange(async value => {
+            this.plugin.settings.localFolder = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
     new Setting(containerEl)
       .setName('启用 GitHub 图床')
@@ -225,8 +240,7 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
     if (this.plugin.settings.enableImageHosting) {
       // ── GitHub Configuration ────────────────────────────────────────────────
       const githubConfigH3 = containerEl.createEl('h3');
-      setIcon(githubConfigH3, 'lock');
-      githubConfigH3.appendText(' GitHub 配置');
+      githubConfigH3.appendText('GitHub 配置');
 
       new Setting(containerEl)
         .setName('GitHub Token')
@@ -281,13 +295,13 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
 
       new Setting(containerEl)
         .setName('图片存储目录')
-        .setDesc('仓库中存储图片的目录路径（相对于仓库根目录）')
+        .setDesc('仓库中存储图片的目录路径，支持多个目录（用英文逗号分隔）。上传默认使用第一个目录')
         .addText(text =>
           text
-            .setPlaceholder('assets/images')
-            .setValue(this.plugin.settings.imagePath)
+            .setPlaceholder('assets/images, assets/screenshots')
+            .setValue(this.plugin.settings.imagePaths.join(', '))
             .onChange(async value => {
-              this.plugin.settings.imagePath = value;
+              this.plugin.settings.imagePaths = value.split(',').map(p => p.trim()).filter(p => p.length > 0);
               await this.plugin.saveSettings();
             }),
         );
@@ -307,8 +321,7 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
 
       // ── Image Display ──────────────────────────────────────────────────────
       const imageDisplayH3 = containerEl.createEl('h3');
-      setIcon(imageDisplayH3, 'image');
-      imageDisplayH3.appendText(' 图片显示');
+      imageDisplayH3.appendText('图片显示');
 
       new Setting(containerEl)
         .setName('启用图片宽度设置')
@@ -344,80 +357,12 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
         '• <code>![image|300x200](url)</code> - 指定宽度 300px 和高度 200px<br/>' +
         '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
         '<br/><strong>建议：</strong>通常只需指定宽度，高度会按比例自动调整';
-
-      // ── Replacement Log ────────────────────────────────────────────────────
-      const replacementLogH3 = containerEl.createEl('h3');
-      setIcon(replacementLogH3, 'clipboard-list');
-      replacementLogH3.appendText(' 替换日志');
-
-      new Setting(containerEl)
-        .setName('启用替换日志')
-        .setDesc('上传本地图片到 GitHub 并替换笔记链接时，记录替换日志')
-        .addToggle(toggle =>
-          toggle
-            .setValue(this.plugin.settings.enableReplacementLog)
-            .onChange(async value => {
-              this.plugin.settings.enableReplacementLog = value;
-              await this.plugin.saveSettings();
-            }),
-        );
-
-      // Recent replacement logs (show last 10)
-      const recentLogsContainer = containerEl.createDiv();
-      recentLogsContainer.style.cssText = 'margin-top: 12px;';
-
-      const recentLogsHeader = recentLogsContainer.createEl('div', {
-        cls: 'recent-logs-header',
-        text: '最近替换记录',
-      });
-      recentLogsHeader.style.cssText = 'font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted);';
-
-      const recentLogsList = recentLogsContainer.createEl('div', { cls: 'recent-logs-list' });
-      recentLogsList.style.cssText = 'background: var(--background-secondary); border-radius: 6px; padding: 8px; max-height: 300px; overflow-y: auto;';
-
-      const logs = this.plugin.replacementLogs.slice(0, 10);
-
-      if (logs.length === 0) {
-        recentLogsList.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 12px;">暂无替换记录</div>';
-      } else {
-        for (const log of logs) {
-          const logItem = recentLogsList.createEl('div', { cls: 'recent-log-item' });
-          logItem.style.cssText = 'padding: 8px 0; border-bottom: 1px solid var(--background-modifier-border);';
-          logItem.style.borderBottom = '1px solid var(--background-modifier-border)';
-
-          const logHeader = logItem.createEl('div', { cls: 'recent-log-header' });
-          logHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;';
-
-          const logStatus = logHeader.createEl('span', {
-            cls: 'recent-log-status',
-            text: log.success ? '✓ 成功' : '✗ 失败',
-          });
-          logStatus.style.cssText = `font-size: 12px; color: ${log.success ? 'var(--text-success)' : 'var(--text-error)'};`;
-
-          const logTime = logHeader.createEl('span', {
-            cls: 'recent-log-time',
-            text: log.timestamp.toLocaleString('zh-CN'),
-          });
-          logTime.style.cssText = 'font-size: 11px; color: var(--text-muted);';
-
-          const logPaths = logItem.createEl('div', { cls: 'recent-log-paths' });
-          logPaths.style.cssText = 'font-size: 12px; word-break: break-all;';
-          logPaths.innerHTML = `<span style="color: var(--text-muted);">${this.escapeHtml(log.localPath)}</span> <span style="color: var(--text-muted);">→</span> <span style="color: var(--interactive-accent);">${log.remoteUrl ? this.escapeHtml(log.remoteUrl.substring(log.remoteUrl.lastIndexOf('/') + 1)) : '-'}</span>`;
-
-          if (log.affectedNotes.length > 0) {
-            const logNotes = logItem.createEl('div', { cls: 'recent-log-notes' });
-            logNotes.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 4px;';
-            logNotes.textContent = `影响 ${log.affectedNotes.length} 篇笔记: ${log.affectedNotes.map(n => n.basename).join(', ')}`;
-          }
-        }
-      }
     }
 
     // ── Image Compression (always visible when enabled) ───────────────────
     if (this.plugin.settings.enableImageCompression) {
       const compressionH3 = containerEl.createEl('h3');
-      setIcon(compressionH3, 'archive');
-      compressionH3.appendText(' 图片压缩');
+      compressionH3.appendText('图片压缩');
 
       new Setting(containerEl)
         .setName('压缩阈值（MB）')
@@ -485,39 +430,90 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
         );
     }
 
-    // ── Local Storage ──────────────────────────────────────────────────────
-    const localStorageH3 = containerEl.createEl('h3');
-    setIcon(localStorageH3, 'hard-drive');
-    localStorageH3.appendText(' 本地存储');
+    // ── Gallery Settings ───────────────────────────────────────────────────
+    const gallerySettingsH3 = containerEl.createEl('h3');
+    gallerySettingsH3.appendText('图片库设置');
 
     new Setting(containerEl)
-      .setName('本地图片文件夹')
-      .setDesc('选择"保存到本地"时，图片保存的文件夹路径')
-      .addText(text =>
-        text
-          .setPlaceholder('assets')
-          .setValue(this.plugin.settings.localFolder)
+      .setName('默认显示')
+      .setDesc('图片库默认显示的图片类型')
+      .addDropdown(dropdown =>
+        dropdown
+          .addOption('all', '全部')
+          .addOption('local', '本地图片')
+          .addOption('remote', '远程图片')
+          .setValue(this.plugin.settings.galleryFilter)
           .onChange(async value => {
-            this.plugin.settings.localFolder = value;
+            this.plugin.settings.galleryFilter = value as 'all' | 'local' | 'remote';
             await this.plugin.saveSettings();
           }),
       );
 
-    // ── Info Section ───────────────────────────────────────────────────────
-    const infoH3 = containerEl.createEl('h3');
-    setIcon(infoH3, 'book-open');
-    infoH3.appendText(' 使用说明');
+    // ── Replacement Log ────────────────────────────────────────────────────
+    const replacementLogH3 = containerEl.createEl('h3');
+    replacementLogH3.appendText('替换日志');
 
-    const infoEl = containerEl.createDiv();
-    infoEl.style.cssText = 'background: var(--background-secondary); padding: 16px; border-radius: 8px; margin-top: 12px; font-size: 0.95em; line-height: 1.6;';
-    infoEl.innerHTML = '<strong>功能说明：</strong><br/>' +
-      '• 在编辑器中粘贴图片时，会弹出对话框<br/>' +
-      '• 选择"上传到 GitHub"：图片将上传到配置的 GitHub 仓库，并插入网络链接<br/>' +
-      '• 选择"保存到本地"：图片将保存到本地 Vault，并插入相对路径<br/>' +
-      '<br/><strong>配置要求：</strong><br/>' +
-      '• GitHub Token：需要有 Contents 仓库权限（读写）<br/>' +
-      '• 用户名和仓库名：必须正确配置才能上传<br/>' +
-      '• 分支名：通常为 main 或 master';
+    new Setting(containerEl)
+      .setName('启用替换日志')
+      .setDesc('上传本地图片到 GitHub 并替换笔记链接时，记录替换日志')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableReplacementLog)
+          .onChange(async value => {
+            this.plugin.settings.enableReplacementLog = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // Recent replacement logs (show last 10)
+    const recentLogsContainer = containerEl.createDiv();
+    recentLogsContainer.style.cssText = 'margin-top: 12px;';
+
+    const recentLogsHeader = recentLogsContainer.createEl('div', {
+      cls: 'recent-logs-header',
+      text: '最近替换记录',
+    });
+    recentLogsHeader.style.cssText = 'font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted);';
+
+    const recentLogsList = recentLogsContainer.createEl('div', { cls: 'recent-logs-list' });
+    recentLogsList.style.cssText = 'background: var(--background-secondary); border-radius: 6px; padding: 8px; max-height: 300px; overflow-y: auto;';
+
+    const logs = this.plugin.replacementLogs.slice(0, 10);
+
+    if (logs.length === 0) {
+      recentLogsList.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 12px;">暂无替换记录</div>';
+    } else {
+      for (const log of logs) {
+        const logItem = recentLogsList.createEl('div', { cls: 'recent-log-item' });
+        logItem.style.cssText = 'padding: 8px 0; border-bottom: 1px solid var(--background-modifier-border);';
+        logItem.style.borderBottom = '1px solid var(--background-modifier-border)';
+
+        const logHeader = logItem.createEl('div', { cls: 'recent-log-header' });
+        logHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;';
+
+        const logStatus = logHeader.createEl('span', {
+          cls: 'recent-log-status',
+          text: log.success ? '✓ 成功' : '✗ 失败',
+        });
+        logStatus.style.cssText = `font-size: 12px; color: ${log.success ? 'var(--text-success)' : 'var(--text-error)'};`;
+
+        const logTime = logHeader.createEl('span', {
+          cls: 'recent-log-time',
+          text: log.timestamp.toLocaleString('zh-CN'),
+        });
+        logTime.style.cssText = 'font-size: 11px; color: var(--text-muted);';
+
+        const logPaths = logItem.createEl('div', { cls: 'recent-log-paths' });
+        logPaths.style.cssText = 'font-size: 12px; word-break: break-all;';
+        logPaths.innerHTML = `<span style="color: var(--text-muted);">${this.escapeHtml(log.localPath)}</span> <span style="color: var(--text-muted);">→</span> <span style="color: var(--interactive-accent);">${log.remoteUrl ? this.escapeHtml(log.remoteUrl.substring(log.remoteUrl.lastIndexOf('/') + 1)) : '-'}</span>`;
+
+        if (log.affectedNotes.length > 0) {
+          const logNotes = logItem.createEl('div', { cls: 'recent-log-notes' });
+          logNotes.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 4px;';
+          logNotes.textContent = `影响 ${log.affectedNotes.length} 篇笔记: ${log.affectedNotes.map(n => n.basename).join(', ')}`;
+        }
+      }
+    }
   }
 
   private escapeHtml(text: string): string {
