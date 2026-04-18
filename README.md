@@ -14,25 +14,27 @@ Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitH
 
 ### 粘贴即上传
 
-复制图片后按 `Ctrl+V` 或 `Cmd+V`，弹出上传确认框，选择存储位置后自动处理并插入 Markdown 链接。支持截图、网页图片等各种来源。
+复制图片后按 `Ctrl+V` 或 `Cmd+V`，弹出上传确认框，选择存储位置后自动处理并插入 Markdown 链接，支持压缩保存/上传。
+![image|700](https://raw.githubusercontent.com/zhaohongxuan/picgo/master/assets/images/2026-04-18_09-35-40_8q25m.png)
+
 
 ### GitHub 图床
 
-将图片上传到指定的 GitHub 仓库，生成永久有效的原始文件链接。支持配置 CDN 或自定义域名加快访问速度。
+将图片上传到指定的 GitHub 仓库，生成永久有效的原始文件链接。
 
 ### 本地存储
 
-图片可保存到 Vault 本地文件夹，使用相对路径，跨设备同步无忧，完全离线可用。
+图片可保存到 Vault 本地文件夹，使用相对路径，完全离线可用。
 
 ### 统一图库
-
 在插件提供的图库视图中，可以集中浏览和管理所有图片：
-
-- 本地图片和 GitHub 图片统一展示，无需切换
-- 按时间分组，直观看到每月拍了什么
-- 点击图片查看详情，支持复制链接、在浏览器打开或删除
+- 本地图片和 GitHub 图片统一展示
+- 点击图片查看详情，支持复制链接或删除
 - 本地图片可直接上传到 GitHub，并自动替换笔记中的引用
 - 显示每张图片被哪些笔记引用
+<img width="916" height="1057" alt="image" src="https://github.com/user-attachments/assets/c58713e9-a3c0-4088-b97f-81da93991b87" />
+
+
 
 ---
 
@@ -80,6 +82,8 @@ Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitH
 - 存储目录
 - 目标分支
 - 本地文件夹路径
+![image|700](https://raw.githubusercontent.com/zhaohongxuan/picgo/master/assets/images/2026-04-18_08-41-57_c39fo.png)
+
 
 ### 开始使用
 
@@ -98,10 +102,11 @@ Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitH
 
 ### 图库管理流程
 
-1. 打开侧边栏图库视图
-2. 浏览所有图片，可按类型筛选
+1. 打开 Ribbon 打开图片库，或者打开命令窗口输入：打开图片库
+2. 浏览所有图片
 3. 点击图片查看大图和引用该图片的笔记列表
 4. 对本地图片可选择上传到 GitHub 并自动替换笔记中的引用
+<img width="824" height="501" alt="image" src="https://github.com/user-attachments/assets/034b3716-b445-4978-bc21-d783db1537d8" />
 
 ---
 
@@ -115,7 +120,7 @@ Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitH
 
 ### 图片不显示
 
-- GitHub 图片检查链接是否正确，可尝试使用 jsDelivr CDN
+- GitHub 图片检查链接是否正确
 - 本地图片确认路径相对于 Vault 根目录正确
 
 ---
