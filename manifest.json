@@ -3,7 +3,7 @@
   "name": "GitHub Image Uploader",
   "version": "1.3.0",
   "minAppVersion": "1.4.0",
-  "description": "Upload images to GitHub when pasting in Obsidian. Choose between cloud hosting on GitHub or local storage.",
+  "description": "Upload images to GitHub when pasting. Choose between cloud hosting on GitHub or local storage.",
   "author": "hankzhao",
   "authorUrl": "https://github.com/zhaohongxuan",
   "isDesktopOnly": false
