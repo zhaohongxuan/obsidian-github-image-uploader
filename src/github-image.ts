@@ -137,30 +137,42 @@ export class GitHubImageHosting {
         const reader = new FileReader();
         reader.onload = async (e) => {
           const previewUrl = e.target?.result as string;
-          
-          // Check if file needs compression option
-          const compressionThresholdBytes = this.plugin.settings.compressionThreshold * 1024 * 1024;
-          const showCompressOption = this.plugin.settings.enableImageCompression && file.size > compressionThresholdBytes;
-          
+
           // Show confirmation modal and wait for user choice
           const action = await new Promise<'github' | 'local' | 'compress' | null>((resolve) => {
-            const compressAndUpload = showCompressOption ? async () => {
-              await this.compressAndUploadImage(file);
+            // These callbacks receive the pre-compressed blob from modal
+            const compressAndUpload = async (blob: Blob) => {
+              await this.compressAndUploadImageBlob(file, blob);
               resolve('compress');
-            } : undefined;
-            
-            const modal = new ImageConfirmModal(this.app, file, previewUrl, resolve, isMobile, showCompressOption, compressAndUpload);
+            };
+            const compressAndSaveLocal = async (blob: Blob) => {
+              await this.compressAndSaveImageBlobLocally(file, blob);
+              resolve('compress');
+            };
+
+            const generatedFilename = this.generateImageFilename(file.type);
+            const modal = new ImageConfirmModal(
+              this.app,
+              file,
+              previewUrl,
+              resolve,
+              isMobile,
+              this.plugin.settings.enableImageCompression,
+              this.plugin.settings.compressionThreshold,
+              this.plugin.settings.compressionQuality,
+              this.plugin.settings.targetCompressedSize,
+              compressAndUpload,
+              compressAndSaveLocal,
+              generatedFilename
+            );
             modal.open();
           });
-          
-          // Execute based on user choice
+
+          // Execute based on user choice (only if compression was not handled in callback)
           if (action === 'github') {
             await this.uploadAndInsertImage(file);
           } else if (action === 'local') {
-            // Use Obsidian's default paste behavior
             await this.saveImageLocally(file);
-          } else if (action === 'compress') {
-            // Compress already handled in the callback
           }
         };
         reader.onerror = () => {
@@ -198,30 +210,42 @@ export class GitHubImageHosting {
     const reader = new FileReader();
     reader.onload = async (e) => {
       const previewUrl = e.target?.result as string;
-      
-      // Check if file needs compression option
-      const compressionThresholdBytes = this.plugin.settings.compressionThreshold * 1024 * 1024;
-      const showCompressOption = this.plugin.settings.enableImageCompression && file.size > compressionThresholdBytes;
-      
+
       // Show confirmation modal and wait for user choice
       const action = await new Promise<'github' | 'local' | 'compress' | null>((resolve) => {
-        const compressAndUpload = showCompressOption ? async () => {
-          await this.compressAndUploadImage(file);
+        // These callbacks receive the pre-compressed blob from modal
+        const compressAndUpload = async (blob: Blob) => {
+          await this.compressAndUploadImageBlob(file, blob);
           resolve('compress');
-        } : undefined;
-        
-        const modal = new ImageConfirmModal(this.app, file, previewUrl, resolve, isMobile, showCompressOption, compressAndUpload);
+        };
+        const compressAndSaveLocal = async (blob: Blob) => {
+          await this.compressAndSaveImageBlobLocally(file, blob);
+          resolve('compress');
+        };
+
+        const generatedFilename = this.generateImageFilename(file.type);
+        const modal = new ImageConfirmModal(
+          this.app,
+          file,
+          previewUrl,
+          resolve,
+          isMobile,
+          this.plugin.settings.enableImageCompression,
+          this.plugin.settings.compressionThreshold,
+          this.plugin.settings.compressionQuality,
+          this.plugin.settings.targetCompressedSize,
+          compressAndUpload,
+          compressAndSaveLocal,
+          generatedFilename
+        );
         modal.open();
       });
-      
-      // Execute based on user choice
+
+      // Execute based on user choice (only if compression was not handled in callback)
       if (action === 'github') {
         await this.uploadAndInsertImage(file);
       } else if (action === 'local') {
-        // Use Obsidian's default paste behavior
         await this.saveImageLocally(file);
-      } else if (action === 'compress') {
-        // Compress already handled in the callback
       }
     };
     reader.onerror = () => {
@@ -239,7 +263,7 @@ export class GitHubImageHosting {
       if (!view) return;
 
       const arrayBuffer = await file.arrayBuffer();
-      const filename = file.name;
+      const filename = this.generateImageFilename(file.type);
       
       // Save to Obsidian attachments folder
       const attachmentFolder = this.plugin.settings.localFolder;
@@ -269,15 +293,62 @@ export class GitHubImageHosting {
   }
 
   /**
+   * Compress image and save to Obsidian's attachment folder
+   */
+  private async compressAndSaveImageLocally(file: File) {
+    try {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view) return;
+
+      // Compress the image first
+      const compressedBlob = await this.compressImage(file);
+      const compressedArrayBuffer = await compressedBlob.arrayBuffer();
+
+      const filename = this.generateImageFilename(file.type);
+      const attachmentFolder = this.plugin.settings.localFolder;
+
+      // Ensure folder exists
+      try {
+        await this.app.vault.createFolder(attachmentFolder);
+      } catch (e) {
+        // Folder might already exist
+      }
+
+      // Save compressed image
+      try {
+        await this.app.vault.createBinary(attachmentFolder + '/' + filename, compressedArrayBuffer);
+      } catch (err) {
+        // Fallback to root
+        await this.app.vault.createBinary(filename, compressedArrayBuffer);
+      }
+
+      // Insert markdown link
+      const cursor = view.editor.getCursor();
+      const linkPath = attachmentFolder + '/' + filename;
+      const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
+      view.editor.replaceRange(markdownLink, cursor);
+
+      const originalSize = (file.size / 1024).toFixed(1);
+      const compressedSize = (compressedBlob.size / 1024).toFixed(1);
+      new Notice(`图片已压缩保存（${originalSize}KB → ${compressedSize}KB）`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      new Notice('压缩保存失败: ' + msg);
+    }
+  }
+
+  /**
    * Upload image to GitHub and insert markdown link
    */
   private async uploadAndInsertImage(file: File) {
-    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
       new Notice('GitHub 配置不完整，请在插件设置中配置');
       return;
     }
+
+    const imagePath = imagePaths[0] || '';
 
     // Show upload progress modal
     let uploadSuccess = false;
@@ -290,7 +361,7 @@ export class GitHubImageHosting {
     try {
       const blob = new Blob([file], { type: file.type });
       const filename = this.generateImageFilename(file.type);
-      
+
       // Update progress
       progressModal.updateStatus('正在上传到 GitHub...', 'uploading');
 
@@ -349,13 +420,14 @@ export class GitHubImageHosting {
     try {
       // Compress image
       const compressedBlob = await this.compressImage(file);
-      
+
       progressModal.updateStatus('正在上传压缩后的图片到 GitHub...', 'uploading');
 
       // Upload compressed image
-      const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+      const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
+      const imagePath = imagePaths[0] || '';
       const filename = this.generateImageFilename(file.type);
-      
+
       const uploadUrl = await this.uploadImageToGitHub(compressedBlob, filename, {
         token: gitHubToken,
         owner: gitHubOwner,
@@ -385,13 +457,99 @@ export class GitHubImageHosting {
   }
 
   /**
+   * Upload pre-compressed blob to GitHub (already compressed by modal)
+   */
+  private async compressAndUploadImageBlob(file: File, blob: Blob) {
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
+
+    if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
+      new Notice('GitHub 配置不完整，请在插件设置中配置');
+      return;
+    }
+
+    const imagePath = imagePaths[0] || '';
+
+    const progressModal = new UploadProgressModal(this.app);
+    progressModal.open();
+
+    try {
+      progressModal.updateStatus('正在上传压缩后的图片到 GitHub...', 'uploading');
+
+      const filename = this.generateImageFilename(file.type);
+      const uploadUrl = await this.uploadImageToGitHub(blob, filename, {
+        token: gitHubToken,
+        owner: gitHubOwner,
+        repo: gitHubRepo,
+        branch: gitHubBranch,
+        folder: imagePath,
+      });
+
+      progressModal.updateStatus('上传成功！', 'success');
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view) {
+        const cursor = view.editor.getCursor();
+        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
+        view.editor.replaceRange(markdownLink, cursor);
+      }
+
+      progressModal.close();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      progressModal.updateStatus('上传失败: ' + msg, 'error');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      progressModal.close();
+    }
+  }
+
+  /**
+   * Save pre-compressed blob locally
+   */
+  private async compressAndSaveImageBlobLocally(file: File, blob: Blob) {
+    try {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view) return;
+
+      const filename = this.generateImageFilename(file.type);
+      const attachmentFolder = this.plugin.settings.localFolder;
+      const arrayBuffer = await blob.arrayBuffer();
+
+      try {
+        await this.app.vault.createFolder(attachmentFolder);
+      } catch (e) {
+        // Folder might already exist
+      }
+
+      try {
+        await this.app.vault.createBinary(attachmentFolder + '/' + filename, arrayBuffer);
+      } catch (err) {
+        await this.app.vault.createBinary(filename, arrayBuffer);
+      }
+
+      const cursor = view.editor.getCursor();
+      const linkPath = attachmentFolder + '/' + filename;
+      const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
+      view.editor.replaceRange(markdownLink, cursor);
+
+      const originalSize = (file.size / 1024).toFixed(1);
+      const compressedSize = (blob.size / 1024).toFixed(1);
+      new Notice(`图片已压缩保存（${originalSize}KB → ${compressedSize}KB）`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      new Notice('压缩保存失败: ' + msg);
+    }
+  }
+
+  /**
    * Compress image to target size using canvas
-   * 
+   *
    * Algorithm:
    * 1. Load image and create canvas
-   * 2. Iteratively reduce JPEG quality until file size meets target
-   * 3. Uses initial quality and quality step from plugin settings
-   * 
+   * 2. Convert to JPEG (avoids PNG re-encoding bloat)
+   * 3. Iteratively reduce quality until file size meets target
+   * 4. Uses initial quality and quality step from plugin settings
+   *
    * Performance notes:
    * - Quality range: 0.1 (very compressed) to 1.0 (lossless)
    * - Each iteration calls canvas.toBlob() which can be slow on mobile
@@ -414,10 +572,13 @@ export class GitHubImageHosting {
           // Calculate dimensions with aspect ratio
           let width = img.width;
           let height = img.height;
-          
+
           // Start with full resolution
           canvas.width = width;
           canvas.height = height;
+          // Fill with white background to handle transparent PNGs
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
 
           // Iteratively reduce quality until target size is achieved
@@ -425,9 +586,12 @@ export class GitHubImageHosting {
           const qualityStep = this.plugin.settings.compressionQualityStep;
           const targetSize = this.plugin.settings.targetCompressedSize * 1024; // Convert KB to bytes
           const minQuality = 0.1; // Absolute minimum to prevent over-compression
-          
+
           let quality = initialQuality;
-          
+
+          // Always use image/jpeg for compression to avoid PNG bloat
+          const targetMimeType = 'image/jpeg';
+
           const compressWithQuality = (q: number) => {
             canvas.toBlob(
               (blob) => {
@@ -445,7 +609,7 @@ export class GitHubImageHosting {
                   compressWithQuality(quality);
                 }
               },
-              file.type || 'image/jpeg',
+              targetMimeType,
               q
             );
           };
@@ -584,6 +748,21 @@ export class GitHubImageHosting {
  */
 class ImageConfirmModal extends Modal {
   action: 'github' | 'local' | 'compress' | null = null;
+  compressEnabled: boolean = false;
+  private compressToggle: HTMLInputElement | null = null;
+  private compressInfo: HTMLElement | null = null;
+  private resolvePromise: ((action: 'github' | 'local' | 'compress' | null) => void) | null = null;
+  private compressedBlob: Blob | null = null;
+  private compressing: boolean = false;
+
+  // Helper to format size in human readable format
+  private formatSize(bytes: number): string {
+    if (bytes >= 1024 * 1024) {
+      return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    } else {
+      return (bytes / 1024).toFixed(2) + ' KB';
+    }
+  }
 
   constructor(
     app: App,
@@ -591,10 +770,16 @@ class ImageConfirmModal extends Modal {
     private imageUrl: string,
     private onResolve: (action: 'github' | 'local' | 'compress' | null) => void,
     private isMobile: boolean = false,
-    private showCompressOption: boolean = false,
-    private compressAndUpload?: () => Promise<void>
+    private enableCompression: boolean = false,
+    private compressionThreshold: number = 1,
+    private compressionQuality: number = 0.85,
+    private targetCompressedSize: number = 500,
+    private compressAndUpload?: (blob: Blob) => Promise<void>,
+    private compressAndSaveLocal?: (blob: Blob) => Promise<void>,
+    private generatedFilename: string = ''
   ) {
     super(app);
+    this.resolvePromise = onResolve;
   }
 
   onOpen() {
@@ -612,8 +797,8 @@ class ImageConfirmModal extends Modal {
       const warningIconEl = warning.createSpan({ cls: 'mobile-warning-icon' });
       setIcon(warningIconEl, 'alert-triangle');
       warning.appendText(' 移动设备上传提示');
-      
-      const warningContent = contentEl.createEl('div', { cls: 'mobile-warning-content' });
+
+      const warningContent = warning.createEl('div', { cls: 'mobile-warning-content' });
       warningContent.textContent = '请稍候，上传中勿离开此页面。如遇卡顿，请关闭此弹窗后重试。';
     }
 
@@ -622,14 +807,73 @@ class ImageConfirmModal extends Modal {
     const img = previewContainer.createEl('img');
     img.src = this.imageUrl;
 
-    // File info
+    // File info with compression (centered)
     const infoContainer = contentEl.createEl('div', { cls: 'image-info-container' });
-    infoContainer.innerHTML = '<strong>文件名:</strong> ' + this.imageFile.name + '<br/>' +
-      '<strong>文件大小:</strong> ' + (this.imageFile.size / 1024).toFixed(2) + ' KB';
+    infoContainer.style.cssText = 'text-align: left; margin: 0 auto; max-width: fit-content;';
+    const fileSizeMB = this.imageFile.size / 1024 / 1024;
+    const shouldShowCompress = this.enableCompression && fileSizeMB > this.compressionThreshold;
 
-    // Action description
-    const desc = contentEl.createEl('p', { cls: 'image-action-description' });
-    desc.textContent = '请选择处理方式：';
+    // Determine upload size display
+    let uploadSizeText = '';
+    if (!this.enableCompression) {
+      uploadSizeText = this.formatSize(this.imageFile.size) + '（未开启压缩）';
+    } else if (!shouldShowCompress) {
+      // Below threshold - show original size with threshold note
+      if (this.compressionThreshold >= 1) {
+        uploadSizeText = this.formatSize(this.imageFile.size) + '（未达到压缩阈值 ' + this.compressionThreshold + 'MB）';
+      } else {
+        uploadSizeText = this.formatSize(this.imageFile.size) + '（未达到压缩阈值 ' + (this.compressionThreshold * 1024).toFixed(0) + 'KB）';
+      }
+    } else {
+      // Above threshold - will be updated after compression
+      uploadSizeText = this.formatSize(this.imageFile.size) + '（压缩中...）';
+    }
+
+    infoContainer.innerHTML = '<strong>文件名:</strong> ' + this.generatedFilename + '<br/>' +
+      '<strong>原始大小:</strong> ' + this.formatSize(this.imageFile.size) + '<br/>' +
+      '<strong>上传文件大小:</strong> <span class="upload-size-value">' + uploadSizeText + '</span>';
+
+    // Only show compression section when compression is enabled and file exceeds threshold
+    if (shouldShowCompress) {
+      // Compression section
+      const compressSection = contentEl.createEl('div', { cls: 'compress-section' });
+      compressSection.style.cssText = 'margin-top: -20px;';
+
+      // Compression info - shown above the checkbox
+      this.compressInfo = compressSection.createEl('div', { cls: 'compress-info' });
+      this.compressInfo.style.cssText = 'font-size: 13px; text-align: center; margin-bottom: 6px;';
+
+      const compressRow = compressSection.createEl('div', { cls: 'compress-row' });
+      compressRow.style.cssText = 'display: flex; align-items: center; justify-content: center; gap: 12px;';
+
+      this.compressToggle = compressRow.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
+      this.compressToggle.id = 'compress-toggle';
+      this.compressToggle.checked = shouldShowCompress;
+      this.compressEnabled = shouldShowCompress;
+
+      const compressLabel = compressRow.createEl('label', { cls: 'compress-label' });
+      compressLabel.htmlFor = 'compress-toggle';
+      compressLabel.textContent = '启用压缩';
+
+      this.compressToggle.addEventListener('change', () => {
+        this.compressEnabled = this.compressToggle?.checked ?? false;
+        if (this.compressEnabled) {
+          void this.startCompression();
+        } else {
+          this.compressedBlob = null;
+          this.compressing = false;
+          this.compressInfo.innerHTML = '';
+          // Revert upload size to original with note
+          const uploadSizeEl = this.contentEl.querySelector('.upload-size-value');
+          if (uploadSizeEl) {
+            uploadSizeEl.textContent = this.formatSize(this.imageFile.size) + '（未开启压缩）';
+          }
+        }
+      });
+
+      // Start compression automatically when modal opens
+      void this.startCompression();
+    }
 
     // Button container
     const buttonContainer = contentEl.createEl('div', { cls: 'button-container' });
@@ -638,38 +882,128 @@ class ImageConfirmModal extends Modal {
     const localBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-local' });
     setIcon(localBtn, 'hard-drive');
     localBtn.appendText(' 保存本地');
-    localBtn.addEventListener('click', () => {
+    localBtn.addEventListener('click', async () => {
       this.action = 'local';
       this.close();
+      // If compression enabled and we have a pre-compressed blob, use it
+      // Otherwise, resolve 'local' and let external handle it
+      if (this.compressEnabled && this.compressedBlob && this.compressAndSaveLocal) {
+        await this.compressAndSaveLocal(this.compressedBlob);
+        this.resolvePromise?.('compress');
+      } else {
+        this.resolvePromise?.('local');
+      }
     });
 
     // GitHub upload button
     const githubBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-github' });
     setIcon(githubBtn, 'upload');
-    githubBtn.appendText(' 无损上传');
-    githubBtn.addEventListener('click', () => {
+    githubBtn.appendText(' 上传 GitHub');
+    githubBtn.addEventListener('click', async () => {
       this.action = 'github';
       this.close();
+      // If compression enabled and we have a pre-compressed blob, use it
+      // Otherwise, resolve 'github' and let external handle it
+      if (this.compressEnabled && this.compressedBlob && this.compressAndUpload) {
+        await this.compressAndUpload(this.compressedBlob);
+        this.resolvePromise?.('compress');
+      } else {
+        this.resolvePromise?.('github');
+      }
     });
+  }
 
-    // Compression button (if enabled and file is large)
-    if (this.showCompressOption && this.compressAndUpload) {
-      const compressBtn = buttonContainer.createEl('button', { cls: 'image-confirm-btn image-confirm-btn-compress' });
-      setIcon(compressBtn, 'archive');
-      compressBtn.appendText(' 压缩上传');
-      const compressCallback = this.compressAndUpload;
-      compressBtn.addEventListener('click', async () => {
-        this.close();
-        await compressCallback();
-      });
+  private async startCompression() {
+    if (!this.compressInfo || this.compressing) return;
+
+    const originalSize = this.imageFile.size;
+
+    this.compressing = true;
+    this.compressInfo.innerHTML = '<span style="color: var(--text-muted);">正在压缩...</span>';
+
+    // Query upload size element directly
+    const uploadSizeEl = this.contentEl.querySelector('.upload-size-value');
+    if (uploadSizeEl) {
+      uploadSizeEl.textContent = this.formatSize(originalSize) + '（压缩中...）';
+    }
+
+    try {
+      // Compress at target quality
+      this.compressedBlob = await this.doCompress(this.compressionQuality);
+      const compressedSize = this.compressedBlob.size;
+      const savingsPercent = ((1 - compressedSize / originalSize) * 100).toFixed(1);
+
+      // Update upload size element directly with color
+      if (uploadSizeEl) {
+        uploadSizeEl.innerHTML = this.formatSize(compressedSize) + ' <span style="color: var(--text-success);">（减少 ' + savingsPercent + '%）</span>';
+      }
+      // Clear compressInfo after successful compression
+      this.compressInfo.innerHTML = '';
+    } catch (e) {
+      this.compressInfo.innerHTML = '<span style="color: var(--text-error);">压缩失败，请重试</span>';
+      // Revert upload size element
+      if (uploadSizeEl) {
+        uploadSizeEl.textContent = this.formatSize(originalSize);
+      }
+    } finally {
+      this.compressing = false;
+    }
+  }
+
+  private doCompress(quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建 Canvas'));
+          return;
+        }
+        // Fill with white background to handle transparent PNGs
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+
+        // Set a timeout to reject if toBlob hangs
+        const timeoutId = setTimeout(() => {
+          reject(new Error('压缩超时'));
+        }, 30000);
+
+        canvas.toBlob(
+          (blob) => {
+            clearTimeout(timeoutId);
+            if (blob) resolve(blob);
+            else reject(new Error('压缩失败'));
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => reject(new Error('无法加载图片'));
+      img.src = this.imageUrl;
+    });
+  }
+
+  private updateCompressInfo() {
+    if (!this.compressInfo) return;
+
+    if (this.compressEnabled) {
+      if (!this.compressing && !this.compressedBlob) {
+        this.compressInfo.innerHTML = '<span style="color: var(--text-muted);">正在压缩...</span>';
+      }
+    } else {
+      this.compressInfo.innerHTML = '<span style="color: var(--text-muted);">勾选上方选项启用压缩，可减小文件大小</span>';
     }
   }
 
   onClose() {
     const { contentEl } = this;
     contentEl.empty();
-    // Trigger the callback with the user's choice
-    this.onResolve(this.action);
+    // Note: resolve is called in button click handlers, not here
+    // This prevents double-execution issues
   }
 }
 
@@ -787,8 +1121,6 @@ export class GalleryView extends ItemView {
   private currentPage = 0;
   private galleryGrid: HTMLElement | null = null;
   private loadMoreBtn: HTMLElement | null = null;
-  private currentFilter: 'all' | 'local' | 'remote' = 'all';
-  private filterContainer: HTMLElement | null = null;
 
   // Remote image cache with ETag support
   private remoteImageCache: UnifiedImage[] = [];
@@ -833,19 +1165,16 @@ export class GalleryView extends ItemView {
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
 
-    // Filter dropdown and stats in a row
-    const filterRow = titleContainer.createEl('div', { cls: 'gallery-header-filter-row' });
-    this.filterContainer = filterRow.createEl('div', { cls: 'gallery-header-filters' });
-    this.createFilterButtons();
-
     // Stats container (will be populated after data loads)
-    const statsContainer = filterRow.createEl('div', { cls: 'gallery-header-stats' });
+    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
 
     // Button container on the right
     const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
 
-    const { gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
-    const githubLinkUrl = `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePath}`;
+    const { gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
+    const githubLinkUrl = imagePaths.length > 0
+      ? `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePaths[0]}`
+      : `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}`;
     const refreshBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
     setIcon(refreshBtn, 'refresh-cw');
     refreshBtn.title = '刷新Github图片库';
@@ -868,10 +1197,21 @@ export class GalleryView extends ItemView {
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '加载中...' });
 
     try {
-      const [remoteImages, localImages] = await Promise.all([
-        this.fetchImagesFromGitHub(),
-        this.discoverLocalImages(),
-      ]);
+      const filter = this.plugin.settings.galleryFilter;
+      let remoteImages: UnifiedImage[] = [];
+      let localImages: UnifiedImage[] = [];
+
+      if (filter === 'all') {
+        [remoteImages, localImages] = await Promise.all([
+          this.fetchImagesFromGitHub(),
+          this.discoverLocalImages(),
+        ]);
+      } else if (filter === 'remote') {
+        remoteImages = await this.fetchImagesFromGitHub();
+      } else {
+        localImages = await this.discoverLocalImages();
+      }
+
       this.allImages = [...remoteImages, ...localImages];
       this.allImages.sort((a, b) => b.date.getTime() - a.date.getTime());
       this.groupCounts = this.buildGroupCounts(this.allImages);
@@ -914,19 +1254,16 @@ export class GalleryView extends ItemView {
     const header = container.createEl('div', { cls: 'gallery-view-header' });
     const titleContainer = header.createEl('div', { cls: 'gallery-header-content' });
 
-    // Filter dropdown and stats in a row
-    const filterRow = titleContainer.createEl('div', { cls: 'gallery-header-filter-row' });
-    this.filterContainer = filterRow.createEl('div', { cls: 'gallery-header-filters' });
-    this.createFilterButtons();
-
     // Stats container (will be populated after data loads)
-    const statsContainer = filterRow.createEl('div', { cls: 'gallery-header-stats' });
+    const statsContainer = titleContainer.createEl('div', { cls: 'gallery-header-stats' });
 
     // Button container on the right
     const buttonContainer = header.createEl('div', { cls: 'gallery-header-buttons' });
 
-    const { gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
-    const githubLinkUrl = `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePath}`;
+    const { gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
+    const githubLinkUrl = imagePaths.length > 0
+      ? `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}/${imagePaths[0]}`
+      : `https://github.com/${gitHubOwner}/${gitHubRepo}/tree/${gitHubBranch}`;
     const refreshBtn = buttonContainer.createEl('button', { cls: 'gallery-refresh-btn' });
     setIcon(refreshBtn, 'refresh-cw');
     refreshBtn.title = '刷新Github图片库';
@@ -949,10 +1286,21 @@ export class GalleryView extends ItemView {
     const loadingEl = container.createEl('div', { cls: 'gallery-loading', text: '刷新中...' });
 
     try {
-      const [remoteImages, localImages] = await Promise.all([
-        this.fetchImagesFromGitHub(),
-        this.discoverLocalImages(),
-      ]);
+      const filter = this.plugin.settings.galleryFilter;
+      let remoteImages: UnifiedImage[] = [];
+      let localImages: UnifiedImage[] = [];
+
+      if (filter === 'all') {
+        [remoteImages, localImages] = await Promise.all([
+          this.fetchImagesFromGitHub(),
+          this.discoverLocalImages(),
+        ]);
+      } else if (filter === 'remote') {
+        remoteImages = await this.fetchImagesFromGitHub();
+      } else {
+        localImages = await this.discoverLocalImages();
+      }
+
       this.allImages = [...remoteImages, ...localImages];
       this.allImages.sort((a, b) => b.date.getTime() - a.date.getTime());
       this.groupCounts = this.buildGroupCounts(this.allImages);
@@ -1109,29 +1457,6 @@ export class GalleryView extends ItemView {
     });
   }
 
-  private createFilterButtons() {
-    if (!this.filterContainer) return;
-
-    const select = this.filterContainer.createEl('select', { cls: 'gallery-filter-select' });
-
-    const options = [
-      { key: 'all', label: '全部', icon: '📷' },
-      { key: 'local', label: '本地', icon: '📁' },
-      { key: 'remote', label: '远程', icon: '☁️' },
-    ];
-
-    options.forEach((opt) => {
-      const optionEl = select.createEl('option', { value: opt.key });
-      optionEl.text = opt.label;
-    });
-
-    select.value = this.currentFilter;
-    select.addEventListener('change', () => {
-      this.currentFilter = select.value as 'all' | 'local' | 'remote';
-      this.applyFilter();
-    });
-  }
-
   private applyFilter() {
     // Reset pagination
     this.currentPage = 0;
@@ -1168,23 +1493,50 @@ export class GalleryView extends ItemView {
   }
 
   private getFilteredImages(): UnifiedImage[] {
-    let images = this.allImages;
-
-    // Apply type filter
-    if (this.currentFilter !== 'all') {
-      images = images.filter(img => img.imageType === this.currentFilter);
+    const filter = this.plugin.settings.galleryFilter;
+    if (filter === 'all') {
+      return this.allImages;
     }
-
-    return images;
+    return this.allImages.filter(img => img.imageType === filter);
   }
 
   private async fetchImagesFromGitHub(): Promise<UnifiedImage[]> {
-    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
       throw new Error('GitHub 配置不完整');
     }
 
+    if (imagePaths.length === 0) {
+      return [];
+    }
+
+    try {
+      // Fetch images from all paths in parallel
+      const results = await Promise.all(
+        imagePaths.map(path => this.fetchImagesFromSinglePath(path))
+      );
+
+      // Combine all images from all paths
+      const allImages = results.flat();
+
+      // Sort by date
+      allImages.sort((a, b) => {
+        const dateDiff = b.date.getTime() - a.date.getTime();
+        return dateDiff !== 0
+          ? dateDiff
+          : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      return allImages;
+    } catch (error) {
+      console.error("Error fetching images from GitHub:", error);
+      throw error;
+    }
+  }
+
+  private async fetchImagesFromSinglePath(imagePath: string): Promise<UnifiedImage[]> {
+    const { gitHubToken, gitHubOwner, gitHubRepo, gitHubBranch } = this.plugin.settings;
     const normalizedImagePath = imagePath.replace(/^\/+|\/+$/g, '');
     const apiUrl = new URL(
       `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents${normalizedImagePath ? `/${normalizedImagePath}` : ''}`
@@ -1192,16 +1544,11 @@ export class GalleryView extends ItemView {
     apiUrl.searchParams.set('ref', gitHubBranch);
 
     try {
-      // Use ETag conditional request if we have a cached etag
       const headers: Record<string, string> = {
         'Accept': 'application/vnd.github+json',
         'Authorization': `Bearer ${gitHubToken}`,
         'X-GitHub-Api-Version': '2022-11-28',
       };
-
-      if (this.lastEtag) {
-        headers['If-None-Match'] = this.lastEtag;
-      }
 
       const response = await fetch(apiUrl.toString(), {
         method: 'GET',
@@ -1209,22 +1556,10 @@ export class GalleryView extends ItemView {
         headers,
       });
 
-      // 304 Not Modified - cache is still valid
-      if (response.status === 304) {
-        console.log('[Gallery] ETag hit, using cached data');
-        return this.remoteImageCache;
-      }
-
       if (!response.ok) {
         if (response.status === 404) return [];
         const errData = await response.json().catch(() => ({}));
         throw new Error(`GitHub API ${response.status}: ${JSON.stringify(errData)}`);
-      }
-
-      // Save ETag for next request
-      const etag = response.headers.get('ETag');
-      if (etag) {
-        this.lastEtag = etag;
       }
 
       const data = await response.json();
@@ -1233,52 +1568,21 @@ export class GalleryView extends ItemView {
         return [];
       }
 
-      // Build SHA map for new data (only for image files)
-      const newShaMap = new Map<string, string>();
-      const imageFiles = data.filter((file: any) => this.isImageFile(file.name));
-      for (const file of imageFiles) {
-        newShaMap.set(file.name, file.sha);
-      }
-
-      // Compare with cached SHA map - if identical, return cached data
-      if (this.remoteImageShaCache.size === newShaMap.size) {
-        let identical = true;
-        for (const [name, sha] of newShaMap) {
-          if (this.remoteImageShaCache.get(name) !== sha) {
-            identical = false;
-            break;
-          }
-        }
-        if (identical && this.remoteImageCache.length > 0) {
-          console.log('[Gallery] SHA cache hit, using cached data');
-          return this.remoteImageCache;
-        }
-      }
-
-      // Process new data
-      const newImages: UnifiedImage[] = imageFiles
+      // Process data for this path
+      const images: UnifiedImage[] = data
+        .filter((file: any) => this.isImageFile(file.name))
         .map((file: any) => ({
           name: file.name,
           size: file.size,
           url: `https://raw.githubusercontent.com/${gitHubOwner}/${gitHubRepo}/${gitHubBranch}/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${file.name}`,
+          path: normalizedImagePath,
           date: this.resolveImageDate(file),
           imageType: 'remote' as const,
-        }))
-        .sort((a, b) => {
-          const dateDiff = b.date.getTime() - a.date.getTime();
-          return dateDiff !== 0
-            ? dateDiff
-            : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-        });
+        }));
 
-      // Update cache
-      this.remoteImageShaCache = newShaMap;
-      this.remoteImageCache = newImages;
-      console.log('[Gallery] Cache updated, count:', newImages.length);
-
-      return newImages;
+      return images;
     } catch (error) {
-      console.error("Error fetching images from GitHub:", error);
+      console.error("Error fetching images from GitHub path " + imagePath + ":", error);
       throw error;
     }
   }
@@ -1744,20 +2048,16 @@ class ImageDetailModal extends Modal {
       countEl.textContent = `${references.length} 篇`;
 
       references.forEach((reference) => {
-        const item = listEl.createEl('button', { cls: 'image-reference-item' });
-        item.type = 'button';
+        const item = listEl.createEl('div', { cls: 'image-reference-item' });
 
-        const itemHeader = item.createEl('div', { cls: 'image-reference-item-header' });
-        const iconEl = itemHeader.createSpan({ cls: 'image-reference-item-icon' });
+        const itemRow = item.createEl('button', { cls: 'image-reference-item-button' });
+        itemRow.type = 'button';
+
+        const iconEl = itemRow.createSpan({ cls: 'image-reference-item-icon' });
         setIcon(iconEl, 'file-text');
-        itemHeader.createEl('span', {
+        itemRow.createEl('span', {
           cls: 'image-reference-name',
           text: reference.file.basename,
-        });
-
-        item.createEl('div', {
-          cls: 'image-reference-path',
-          text: reference.file.path,
         });
 
         item.createEl('div', {
@@ -1765,7 +2065,7 @@ class ImageDetailModal extends Modal {
           text: `引用 ${reference.matchCount} 次`,
         });
 
-        item.addEventListener('click', async () => {
+        itemRow.addEventListener('click', async () => {
           const leaf = this.app.workspace.getLeaf(false);
           await leaf.openFile(reference.file);
           this.close();
@@ -1832,14 +2132,21 @@ class ImageDetailModal extends Modal {
   }
 
   private async deleteImage(): Promise<void> {
-    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
 
     if (!gitHubToken || !gitHubOwner || !gitHubRepo) {
       throw new Error('GitHub 配置不完整');
     }
 
+    // Determine which path to use for deletion
+    // Use the image's stored path if available, otherwise use the first configured path
+    let targetPath = imagePaths[0] || '';
+    if ((this.image as any).path) {
+      targetPath = (this.image as any).path;
+    }
+
     // Get current file SHA (needed for deletion)
-    const normalizedImagePath = imagePath.replace(/^\/+|\/+$/g, '');
+    const normalizedImagePath = targetPath.replace(/^\/+|\/+$/g, '');
     const apiUrl = new URL(
       `https://api.github.com/repos/${gitHubOwner}/${gitHubRepo}/contents/${normalizedImagePath ? `${normalizedImagePath}/` : ''}${this.image.name}`
     );

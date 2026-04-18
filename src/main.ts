@@ -20,8 +20,8 @@ interface GitHubImageUploaderSettings {
   gitHubOwner: string;
   /** GitHub repository name */
   gitHubRepo: string;
-  /** Path in repo to store images */
-  imagePath: string;
+  /** Paths in repo to store images (comma-separated in UI) */
+  imagePaths: string[];
   /** GitHub branch to upload to */
   gitHubBranch: string;
   /** Local folder to save images when not uploading to GitHub */
@@ -42,6 +42,8 @@ interface GitHubImageUploaderSettings {
   imageWidth: number;
   /** Enable replacement log to track local->remote image replacements */
   enableReplacementLog: boolean;
+  /** Gallery filter: 'all', 'local', or 'remote' */
+  galleryFilter: 'all' | 'local' | 'remote';
 }
 
 const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
@@ -49,7 +51,7 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   gitHubToken: '',
   gitHubOwner: '',
   gitHubRepo: '',
-  imagePath: 'assets/images',
+  imagePaths: ['assets/images'],
   gitHubBranch: 'main',
   localFolder: 'assets',
   enableImageCompression: false,
@@ -60,6 +62,7 @@ const DEFAULT_SETTINGS: GitHubImageUploaderSettings = {
   enableImageWidth: true,
   imageWidth: 300,
   enableReplacementLog: true,
+  galleryFilter: 'all',
 };
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
@@ -91,6 +94,14 @@ export default class GitHubImageUploaderPlugin extends Plugin {
     // Register GitHub image hosting
     const imageHosting = new GitHubImageHosting(this, this.app);
     imageHosting.register();
+
+    // Add ribbon icon to open image gallery
+    this.addRibbonIcon('image', '打开图片库', () => {
+      this.app.workspace.getLeaf('split').setViewState({
+        type: GALLERY_VIEW_TYPE,
+        active: true,
+      });
+    });
 
     // Add command to open image gallery
     this.addCommand({
@@ -197,107 +208,7 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
 
     // ── Main Toggle ────────────────────────────────────────────────────────
     const basicSettingsH3 = containerEl.createEl('h3');
-    setIcon(basicSettingsH3, 'image');
-    basicSettingsH3.appendText(' 基本设置');
-
-    new Setting(containerEl)
-      .setName('启用 GitHub 图床')
-      .setDesc('粘贴图片时自动弹出上传选项')
-      .addToggle(toggle =>
-        toggle
-          .setValue(this.plugin.settings.enableImageHosting)
-          .onChange(async value => {
-            this.plugin.settings.enableImageHosting = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── GitHub Configuration ────────────────────────────────────────────────
-    const githubConfigH3 = containerEl.createEl('h3');
-    setIcon(githubConfigH3, 'lock');
-    githubConfigH3.appendText(' GitHub 配置');
-
-    new Setting(containerEl)
-      .setName('GitHub Token')
-      .setDesc((() => {
-        const frag = document.createDocumentFragment();
-        frag.appendText('Personal Access Token（需要 Contents 的 Read & Write 权限）。');
-        frag.appendChild(document.createElement('br'));
-        const link = document.createElement('a');
-        link.href = 'https://github.com/settings/personal-access-tokens/new';
-        link.textContent = '→ 点击这里生成 Fine-grained Token';
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        frag.appendChild(link);
-        return frag;
-      })())
-      .addText(text => {
-        text
-          .setPlaceholder('ghp_xxxxxxxxxxxxx')
-          .setValue(this.plugin.settings.gitHubToken)
-          .onChange(async value => {
-            this.plugin.settings.gitHubToken = value;
-            await this.plugin.saveSettings();
-          });
-        text.inputEl.type = 'password';
-      });
-
-    new Setting(containerEl)
-      .setName('GitHub 用户名')
-      .setDesc('仓库所有者的 GitHub 用户名')
-      .addText(text =>
-        text
-          .setPlaceholder('username')
-          .setValue(this.plugin.settings.gitHubOwner)
-          .onChange(async value => {
-            this.plugin.settings.gitHubOwner = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('仓库名称')
-      .setDesc('用于存储图片的 GitHub 仓库名')
-      .addText(text =>
-        text
-          .setPlaceholder('my-repo')
-          .setValue(this.plugin.settings.gitHubRepo)
-          .onChange(async value => {
-            this.plugin.settings.gitHubRepo = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('图片存储目录')
-      .setDesc('仓库中存储图片的目录路径（相对于仓库根目录）')
-      .addText(text =>
-        text
-          .setPlaceholder('assets/images')
-          .setValue(this.plugin.settings.imagePath)
-          .onChange(async value => {
-            this.plugin.settings.imagePath = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('目标分支')
-      .setDesc('上传到的 GitHub 分支')
-      .addText(text =>
-        text
-          .setPlaceholder('main')
-          .setValue(this.plugin.settings.gitHubBranch)
-          .onChange(async value => {
-            this.plugin.settings.gitHubBranch = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── Local Storage ──────────────────────────────────────────────────────
-    const localStorageH3 = containerEl.createEl('h3');
-    setIcon(localStorageH3, 'hard-drive');
-    localStorageH3.appendText(' 本地存储');
+    basicSettingsH3.appendText('基本设置');
 
     new Setting(containerEl)
       .setName('本地图片文件夹')
@@ -312,132 +223,235 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
           }),
       );
 
-    // ── Image Compression ──────────────────────────────────────────────────
-    const compressionH3 = containerEl.createEl('h3');
-    setIcon(compressionH3, 'archive');
-    compressionH3.appendText(' 图片压缩');
-
     new Setting(containerEl)
-      .setName('启用图片压缩')
-      .setDesc('自动压缩超过设定大小的图片')
+      .setName('启用 GitHub 图床')
+      .setDesc('粘贴图片时自动弹出上传选项')
       .addToggle(toggle =>
         toggle
-          .setValue(this.plugin.settings.enableImageCompression)
+          .setValue(this.plugin.settings.enableImageHosting)
           .onChange(async value => {
-            this.plugin.settings.enableImageCompression = value;
+            this.plugin.settings.enableImageHosting = value;
             await this.plugin.saveSettings();
+            this.display(); // 重新渲染设置页面
           }),
       );
+
+    // 只有启用 GitHub 图床时才显示以下选项
+    if (this.plugin.settings.enableImageHosting) {
+      // ── GitHub Configuration ────────────────────────────────────────────────
+      const githubConfigH3 = containerEl.createEl('h3');
+      githubConfigH3.appendText('GitHub 配置');
+
+      new Setting(containerEl)
+        .setName('GitHub Token')
+        .setDesc((() => {
+          const frag = document.createDocumentFragment();
+          frag.appendText('Personal Access Token（需要 Contents 的 Read & Write 权限）。');
+          frag.appendChild(document.createElement('br'));
+          const link = document.createElement('a');
+          link.href = 'https://github.com/settings/personal-access-tokens/new';
+          link.textContent = '→ 点击这里生成 Fine-grained Token';
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          frag.appendChild(link);
+          return frag;
+        })())
+        .addText(text => {
+          text
+            .setPlaceholder('ghp_xxxxxxxxxxxxx')
+            .setValue(this.plugin.settings.gitHubToken)
+            .onChange(async value => {
+              this.plugin.settings.gitHubToken = value;
+              await this.plugin.saveSettings();
+            });
+          text.inputEl.type = 'password';
+        });
+
+      new Setting(containerEl)
+        .setName('GitHub 用户名')
+        .setDesc('仓库所有者的 GitHub 用户名')
+        .addText(text =>
+          text
+            .setPlaceholder('username')
+            .setValue(this.plugin.settings.gitHubOwner)
+            .onChange(async value => {
+              this.plugin.settings.gitHubOwner = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('仓库名称')
+        .setDesc('用于存储图片的 GitHub 仓库名')
+        .addText(text =>
+          text
+            .setPlaceholder('my-repo')
+            .setValue(this.plugin.settings.gitHubRepo)
+            .onChange(async value => {
+              this.plugin.settings.gitHubRepo = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('图片存储目录')
+        .setDesc('仓库中存储图片的目录路径，支持多个目录（用英文逗号分隔）。上传默认使用第一个目录')
+        .addText(text =>
+          text
+            .setPlaceholder('assets/images, assets/screenshots')
+            .setValue(this.plugin.settings.imagePaths.join(', '))
+            .onChange(async value => {
+              this.plugin.settings.imagePaths = value.split(',').map(p => p.trim()).filter(p => p.length > 0);
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('目标分支')
+        .setDesc('上传到的 GitHub 分支')
+        .addText(text =>
+          text
+            .setPlaceholder('main')
+            .setValue(this.plugin.settings.gitHubBranch)
+            .onChange(async value => {
+              this.plugin.settings.gitHubBranch = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      // ── Image Display ──────────────────────────────────────────────────────
+      const imageDisplayH3 = containerEl.createEl('h3');
+      imageDisplayH3.appendText('图片显示');
+
+      new Setting(containerEl)
+        .setName('启用图片宽度设置')
+        .setDesc('插入图片时自动指定宽度，使用 Obsidian 的图片缩放语法（![image|宽度](url)）')
+        .addToggle(toggle =>
+          toggle
+            .setValue(this.plugin.settings.enableImageWidth)
+            .onChange(async value => {
+              this.plugin.settings.enableImageWidth = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('默认图片宽度（像素）')
+        .setDesc('插入图片时的默认宽度。设置为 0 则不指定宽度')
+        .addSlider(slider =>
+          slider
+            .setLimits(0, 800, 50)
+            .setValue(this.plugin.settings.imageWidth)
+            .setDynamicTooltip()
+            .onChange(async value => {
+              this.plugin.settings.imageWidth = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      // Info box for Obsidian image syntax
+      const imageWidthInfo = containerEl.createDiv();
+      imageWidthInfo.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
+      imageWidthInfo.innerHTML = '<strong>Obsidian 图片语法：</strong><br/>' +
+        '• <code>![image|300](url)</code> - 指定宽度 300px<br/>' +
+        '• <code>![image|300x200](url)</code> - 指定宽度 300px 和高度 200px<br/>' +
+        '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
+        '<br/><strong>建议：</strong>通常只需指定宽度，高度会按比例自动调整';
+    }
+
+    // ── Image Compression (always visible when enabled) ───────────────────
+    if (this.plugin.settings.enableImageCompression) {
+      const compressionH3 = containerEl.createEl('h3');
+      compressionH3.appendText('图片压缩');
+
+      new Setting(containerEl)
+        .setName('压缩阈值（MB）')
+        .setDesc('超过此大小的图片会在对话框中显示压缩选项')
+        .addSlider(slider =>
+          slider
+            .setLimits(0.1, 10, 0.1)
+            .setValue(this.plugin.settings.compressionThreshold)
+            .setDynamicTooltip()
+            .onChange(async value => {
+              this.plugin.settings.compressionThreshold = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('初始压缩质量')
+        .setDesc('压缩时的初始 JPEG 质量系数（0.1-1.0）。较高值保持更好画质但文件更大')
+        .addSlider(slider =>
+          slider
+            .setLimits(0.1, 1, 0.05)
+            .setValue(this.plugin.settings.compressionQuality)
+            .setDynamicTooltip()
+            .onChange(async value => {
+              this.plugin.settings.compressionQuality = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      // Compression preset recommendations
+      const presetContainer = containerEl.createDiv();
+      presetContainer.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
+      presetContainer.innerHTML = '<strong>快速预设：</strong><br/>' +
+        '• <strong>高质量（0.90）</strong> - 文档、艺术作品，目标 800KB<br/>' +
+        '• <strong>平衡（0.85）</strong> - 日常笔记、博客，目标 500KB<br/>' +
+        '• <strong>紧凑（0.75）</strong> - 移动网络、大量图片，目标 300KB<br/>' +
+        '• <strong>极限（0.60）</strong> - 受限网络、快速分享，目标 150KB';
+
+      new Setting(containerEl)
+        .setName('压缩质量步长')
+        .setDesc('每次迭代降低的质量幅度（0.01-0.10）。较小值压缩更精细但速度更慢')
+        .addSlider(slider =>
+          slider
+            .setLimits(0.01, 0.1, 0.01)
+            .setValue(this.plugin.settings.compressionQualityStep)
+            .setDynamicTooltip()
+            .onChange(async value => {
+              this.plugin.settings.compressionQualityStep = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('目标压缩大小（KB）')
+        .setDesc('压缩后图片的目标大小，保证不超过此值')
+        .addSlider(slider =>
+          slider
+            .setLimits(100, 1000, 50)
+            .setValue(this.plugin.settings.targetCompressedSize)
+            .setDynamicTooltip()
+            .onChange(async value => {
+              this.plugin.settings.targetCompressedSize = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
+
+    // ── Gallery Settings ───────────────────────────────────────────────────
+    const gallerySettingsH3 = containerEl.createEl('h3');
+    gallerySettingsH3.appendText('图片库设置');
 
     new Setting(containerEl)
-      .setName('压缩阈值（MB）')
-      .setDesc('超过此大小的图片会被压缩或在预览框中显示压缩选项')
-      .addSlider(slider =>
-        slider
-          .setLimits(0.1, 10, 0.1)
-          .setValue(this.plugin.settings.compressionThreshold)
-          .setDynamicTooltip()
+      .setName('默认显示')
+      .setDesc('图片库默认显示的图片类型')
+      .addDropdown(dropdown =>
+        dropdown
+          .addOption('all', '全部')
+          .addOption('local', '本地图片')
+          .addOption('remote', '远程图片')
+          .setValue(this.plugin.settings.galleryFilter)
           .onChange(async value => {
-            this.plugin.settings.compressionThreshold = value;
+            this.plugin.settings.galleryFilter = value as 'all' | 'local' | 'remote';
             await this.plugin.saveSettings();
           }),
       );
-
-    new Setting(containerEl)
-      .setName('初始压缩质量')
-      .setDesc('压缩时的初始 JPEG 质量系数（0.1-1.0）。较高值保持更好画质但文件更大')
-      .addSlider(slider =>
-        slider
-          .setLimits(0.1, 1, 0.05)
-          .setValue(this.plugin.settings.compressionQuality)
-          .setDynamicTooltip()
-          .onChange(async value => {
-            this.plugin.settings.compressionQuality = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // Compression preset recommendations
-    const presetContainer = containerEl.createDiv();
-    presetContainer.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
-    presetContainer.innerHTML = '<strong>快速预设：</strong><br/>' +
-      '• <strong>高质量（0.90）</strong> - 文档、艺术作品，目标 800KB<br/>' +
-      '• <strong>平衡（0.85）</strong> - 日常笔记、博客，目标 500KB<br/>' +
-      '• <strong>紧凑（0.75）</strong> - 移动网络、大量图片，目标 300KB<br/>' +
-      '• <strong>极限（0.60）</strong> - 受限网络、快速分享，目标 150KB';
-
-    new Setting(containerEl)
-      .setName('压缩质量步长')
-      .setDesc('每次迭代降低的质量幅度（0.01-0.10）。较小值压缩更精细但速度更慢')
-      .addSlider(slider =>
-        slider
-          .setLimits(0.01, 0.1, 0.01)
-          .setValue(this.plugin.settings.compressionQualityStep)
-          .setDynamicTooltip()
-          .onChange(async value => {
-            this.plugin.settings.compressionQualityStep = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('目标压缩大小（KB）')
-      .setDesc('压缩后图片的目标大小，保证不超过此值')
-      .addSlider(slider =>
-        slider
-          .setLimits(100, 1000, 50)
-          .setValue(this.plugin.settings.targetCompressedSize)
-          .setDynamicTooltip()
-          .onChange(async value => {
-            this.plugin.settings.targetCompressedSize = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── Image Display ──────────────────────────────────────────────────────
-    const imageDisplayH3 = containerEl.createEl('h3');
-    setIcon(imageDisplayH3, 'image');
-    imageDisplayH3.appendText(' 图片显示');
-
-    new Setting(containerEl)
-      .setName('启用图片宽度设置')
-      .setDesc('插入图片时自动指定宽度，使用 Obsidian 的图片缩放语法（![image|宽度](url)）')
-      .addToggle(toggle =>
-        toggle
-          .setValue(this.plugin.settings.enableImageWidth)
-          .onChange(async value => {
-            this.plugin.settings.enableImageWidth = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('默认图片宽度（像素）')
-      .setDesc('插入图片时的默认宽度。设置为 0 则不指定宽度')
-      .addSlider(slider =>
-        slider
-          .setLimits(0, 800, 50)
-          .setValue(this.plugin.settings.imageWidth)
-          .setDynamicTooltip()
-          .onChange(async value => {
-            this.plugin.settings.imageWidth = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // Info box for Obsidian image syntax
-    const imageWidthInfo = containerEl.createDiv();
-    imageWidthInfo.style.cssText = 'background: var(--background-secondary); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.9em;';
-    imageWidthInfo.innerHTML = '<strong>Obsidian 图片语法：</strong><br/>' +
-      '• <code>![image|300](url)</code> - 指定宽度 300px<br/>' +
-      '• <code>![image|300x200](url)</code> - 指定宽度 300px 和高度 200px<br/>' +
-      '• <code>![image](url)</code> - 不指定尺寸，使用原始大小<br/>' +
-      '<br/><strong>建议：</strong>通常只需指定宽度，高度会按比例自动调整';
 
     // ── Replacement Log ────────────────────────────────────────────────────
     const replacementLogH3 = containerEl.createEl('h3');
-    setIcon(replacementLogH3, 'clipboard-list');
-    replacementLogH3.appendText(' 替换日志');
+    replacementLogH3.appendText('替换日志');
 
     new Setting(containerEl)
       .setName('启用替换日志')
@@ -500,22 +514,6 @@ class GitHubImageUploaderSettingTab extends PluginSettingTab {
         }
       }
     }
-
-    // ── Info Section ───────────────────────────────────────────────────────
-    const infoH3 = containerEl.createEl('h3');
-    setIcon(infoH3, 'book-open');
-    infoH3.appendText(' 使用说明');
-
-    const infoEl = containerEl.createDiv();
-    infoEl.style.cssText = 'background: var(--background-secondary); padding: 16px; border-radius: 8px; margin-top: 12px; font-size: 0.95em; line-height: 1.6;';
-    infoEl.innerHTML = '<strong>功能说明：</strong><br/>' +
-      '• 在编辑器中粘贴图片时，会弹出对话框<br/>' +
-      '• 选择"上传到 GitHub"：图片将上传到配置的 GitHub 仓库，并插入网络链接<br/>' +
-      '• 选择"保存到本地"：图片将保存到本地 Vault，并插入相对路径<br/>' +
-      '<br/><strong>配置要求：</strong><br/>' +
-      '• GitHub Token：需要有 Contents 仓库权限（读写）<br/>' +
-      '• 用户名和仓库名：必须正确配置才能上传<br/>' +
-      '• 分支名：通常为 main 或 master';
   }
 
   private escapeHtml(text: string): string {

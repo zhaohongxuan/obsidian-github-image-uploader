@@ -322,12 +322,12 @@ export class LocalImageDetailModal extends Modal {
   }
 
   private async uploadToGitHub(blob: Blob, filename: string): Promise<string> {
-    const { gitHubToken, gitHubOwner, gitHubRepo, imagePath, gitHubBranch } = this.plugin.settings;
+    const { gitHubToken, gitHubOwner, gitHubRepo, imagePaths, gitHubBranch } = this.plugin.settings;
 
     // Convert blob to base64
     const base64Content = await this.blobToBase64(blob);
 
-    const folder = imagePath.replace(/^\/+|\/+$/g, '');
+    const folder = (imagePaths[0] || '').replace(/^\/+|\/+$/g, '');
     const path = folder ? folder + '/' + filename : filename;
     const apiUrl = 'https://api.github.com/repos/' + gitHubOwner + '/' + gitHubRepo + '/contents/' + path;
 
