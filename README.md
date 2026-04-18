@@ -38,11 +38,21 @@ Obsidian 图片上传插件。复制图片后直接粘贴，自动上传到 GitH
 
 ## 安装
 
-### 方式一：Obsidian 社区插件
+### 方式一：BRAT 插件（推荐）
 
-1. 打开 Obsidian 设置 → 社区插件
-2. 搜索 "GitHub Image Uploader"
-3. 安装并启用
+1. 安装 BRAT 插件
+   - 打开 Obsidian 设置 → 社区插件
+   - 搜索 "BRAT" 并安装
+   - 启用 BRAT 插件
+
+2. 添加 GitHub Image Uploader 到 BRAT
+   - 设置 → 插件选项 → BRAT → Add a beta plugin for testing
+   - 输入仓库地址：`https://github.com/zhaohongxuan/obsidian-github-image-uploader`
+   - 点击 "Add Plugin"
+
+3. 启用插件
+   - 设置 → 社区插件
+   - 找到 "GitHub Image Uploader" 并启用
 
 ### 方式二：手动安装
 
