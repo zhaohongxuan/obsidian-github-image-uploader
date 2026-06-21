@@ -32,6 +32,9 @@ export class GitHubImageHosting {
     private app: App
   ) {}
 
+  /** Reference to the textarea/input element active when image paste was initiated */
+  private activeTextareaEl: HTMLTextAreaElement | HTMLInputElement | null = null;
+
   /**
    * Register paste event listener and file upload interceptor
    */
@@ -68,7 +71,15 @@ export class GitHubImageHosting {
         evt.preventDefault();
         evt.stopPropagation();
         evt.stopImmediatePropagation();
-        
+
+        // Save reference to active textarea/input before modal opens
+        const activeEl = document.activeElement;
+        if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) {
+          this.activeTextareaEl = activeEl;
+        } else {
+          this.activeTextareaEl = null;
+        }
+
         // Handle image upload
         this.handleImagePaste(evt);
       }
@@ -255,16 +266,62 @@ export class GitHubImageHosting {
   }
 
   /**
+   * Insert markdown link at the current cursor position.
+   * Supports both CodeMirror editor (MarkdownView) and plain textarea elements.
+   */
+  private insertMarkdownLink(markdownLink: string): boolean {
+    // Try saved textarea reference first (in case modal stole focus)
+    if (this.activeTextareaEl) {
+      const textarea = this.activeTextareaEl;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const before = textarea.value.substring(0, start);
+      const after = textarea.value.substring(end);
+      textarea.value = before + markdownLink + after;
+      const newPos = start + markdownLink.length;
+      textarea.setSelectionRange(newPos, newPos);
+      // Dispatch input event to notify any listeners
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      this.activeTextareaEl = null; // Clear after use
+      return true;
+    }
+
+    const activeEl = document.activeElement;
+
+    // Try textarea first (plain text input)
+    if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) {
+      const textarea = activeEl as HTMLTextAreaElement;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const before = textarea.value.substring(0, start);
+      const after = textarea.value.substring(end);
+      textarea.value = before + markdownLink + after;
+      const newPos = start + markdownLink.length;
+      textarea.setSelectionRange(newPos, newPos);
+      // Dispatch input event to notify any listeners
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+
+    // Fall back to CodeMirror editor (MarkdownView)
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view) {
+      const cursor = view.editor.getCursor();
+      view.editor.replaceRange(markdownLink, cursor);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Save image to Obsidian's attachment folder
    */
   private async saveImageLocally(file: File) {
     try {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view) return;
-
       const arrayBuffer = await file.arrayBuffer();
       const filename = this.generateImageFilename(file.type);
-      
+
       // Save to Obsidian attachments folder
       const attachmentFolder = this.plugin.settings.localFolder;
       try {
@@ -281,11 +338,14 @@ export class GitHubImageHosting {
       }
 
       // Insert markdown link
-      const cursor = view.editor.getCursor();
       const linkPath = attachmentFolder + '/' + filename;
       const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
-      view.editor.replaceRange(markdownLink, cursor);
-      new Notice('图片已保存到本地');
+
+      if (!this.insertMarkdownLink(markdownLink)) {
+        new Notice('未找到可编辑的文本框或编辑器');
+      } else {
+        new Notice('图片已保存到本地');
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       new Notice('保存失败: ' + msg);
@@ -297,9 +357,6 @@ export class GitHubImageHosting {
    */
   private async compressAndSaveImageLocally(file: File) {
     try {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view) return;
-
       // Compress the image first
       const compressedBlob = await this.compressImage(file);
       const compressedArrayBuffer = await compressedBlob.arrayBuffer();
@@ -323,10 +380,13 @@ export class GitHubImageHosting {
       }
 
       // Insert markdown link
-      const cursor = view.editor.getCursor();
       const linkPath = attachmentFolder + '/' + filename;
       const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
-      view.editor.replaceRange(markdownLink, cursor);
+
+      if (!this.insertMarkdownLink(markdownLink)) {
+        new Notice('未找到可编辑的文本框或编辑器');
+        return;
+      }
 
       const originalSize = (file.size / 1024).toFixed(1);
       const compressedSize = (compressedBlob.size / 1024).toFixed(1);
@@ -389,11 +449,11 @@ export class GitHubImageHosting {
       await new Promise(resolve => window.setTimeout(resolve, 800));
 
       // Insert markdown image link
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) {
-        const cursor = view.editor.getCursor();
-        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
-        view.editor.replaceRange(markdownLink, cursor);
+      const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
+      if (!this.insertMarkdownLink(markdownLink)) {
+        // Fallback: copy to clipboard if no editor found
+        await navigator.clipboard.writeText(markdownLink);
+        new Notice('已上传，链接已复制到剪贴板');
       }
 
       // Close modal
@@ -440,11 +500,11 @@ export class GitHubImageHosting {
       await new Promise(resolve => window.setTimeout(resolve, 800));
 
       // Insert markdown image link
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) {
-        const cursor = view.editor.getCursor();
-        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
-        view.editor.replaceRange(markdownLink, cursor);
+      const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
+      if (!this.insertMarkdownLink(markdownLink)) {
+        // Fallback: copy to clipboard if no editor found
+        await navigator.clipboard.writeText(markdownLink);
+        new Notice('已上传，链接已复制到剪贴板');
       }
 
       progressModal.close();
@@ -487,11 +547,11 @@ export class GitHubImageHosting {
       progressModal.updateStatus('上传成功！', 'success');
       await new Promise(resolve => window.setTimeout(resolve, 800));
 
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) {
-        const cursor = view.editor.getCursor();
-        const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
-        view.editor.replaceRange(markdownLink, cursor);
+      const markdownLink = this.generateMarkdownImageLink(uploadUrl) + '\n';
+      if (!this.insertMarkdownLink(markdownLink)) {
+        // Fallback: copy to clipboard if no editor found
+        await navigator.clipboard.writeText(markdownLink);
+        new Notice('已上传，链接已复制到剪贴板');
       }
 
       progressModal.close();
@@ -508,9 +568,6 @@ export class GitHubImageHosting {
    */
   private async compressAndSaveImageBlobLocally(file: File, blob: Blob) {
     try {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view) return;
-
       const filename = this.generateImageFilename(file.type);
       const attachmentFolder = this.plugin.settings.localFolder;
       const arrayBuffer = await blob.arrayBuffer();
@@ -527,10 +584,13 @@ export class GitHubImageHosting {
         await this.app.vault.createBinary(filename, arrayBuffer);
       }
 
-      const cursor = view.editor.getCursor();
       const linkPath = attachmentFolder + '/' + filename;
       const markdownLink = this.generateMarkdownImageLink(linkPath) + '\n';
-      view.editor.replaceRange(markdownLink, cursor);
+
+      if (!this.insertMarkdownLink(markdownLink)) {
+        new Notice('未找到可编辑的文本框或编辑器');
+        return;
+      }
 
       const originalSize = (file.size / 1024).toFixed(1);
       const compressedSize = (blob.size / 1024).toFixed(1);
