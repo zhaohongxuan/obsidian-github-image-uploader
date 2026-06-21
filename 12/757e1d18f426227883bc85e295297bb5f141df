@@ -1,0 +1,27 @@
+src/github-image.ts
+  s_5a15abd33b3c3a::t_b4a2f7de8b55be 452-456
+  s_5a15abd33b3c3a::t_2a3b08f84abfab 385-389
+  s_5a15abd33b3c3a::t_6cca8b4fa6a96f 503-507
+  s_5a15abd33b3c3a::t_5b4a0d033f1af5 35-37
+  s_5a15abd33b3c3a::t_1f9515ee10c0d4 550-554
+  s_5a15abd33b3c3a::t_74e7816ccadc90 589-593
+  s_5a15abd33b3c3a::t_53a6278c1db093 269-272,289-316,324,343-348
+  s_5a15abd33b3c3a::t_c1cb26222fdf6f 273-288
+  s_5a15abd33b3c3a::t_dcc42412192a45 74-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "12757e1d18f426227883bc85e295297bb5f141df",
+  "prompts": {},
+  "sessions": {
+    "s_5a15abd33b3c3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67f946eb-bdc7-41e5-a9fa-a2c886bc545d",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
