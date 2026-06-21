@@ -271,7 +271,7 @@ export class GitHubImageHosting {
    */
   private insertMarkdownLink(markdownLink: string): boolean {
     // Try saved textarea reference first (in case modal stole focus)
-    if (this.activeTextareaEl) {
+    if (this.activeTextareaEl && this.isTextareaValid(this.activeTextareaEl)) {
       const textarea = this.activeTextareaEl;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -286,10 +286,13 @@ export class GitHubImageHosting {
       return true;
     }
 
+    // Clear stale reference
+    this.activeTextareaEl = null;
+
     const activeEl = document.activeElement;
 
     // Try textarea first (plain text input)
-    if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) {
+    if (this.isTextareaValid(activeEl as HTMLTextAreaElement)) {
       const textarea = activeEl as HTMLTextAreaElement;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -312,6 +315,22 @@ export class GitHubImageHosting {
     }
 
     return false;
+  }
+
+  /**
+   * Check if a textarea element is valid and connected to the DOM
+   */
+  private isTextareaValid(el: HTMLTextAreaElement | HTMLInputElement | null): boolean {
+    if (!el) return false;
+    // Check if element is still in the DOM
+    if (!document.body.contains(el)) return false;
+    // Check if element is a textarea or input
+    if (!(el instanceof HTMLTextAreaElement) && !(el instanceof HTMLInputElement)) return false;
+    // Check if element is disabled or read-only
+    if (el.disabled || el.readOnly) return false;
+    // Check if element has a valid value property
+    if (!('value' in el)) return false;
+    return true;
   }
 
   /**
