@@ -93,11 +93,11 @@ export class GitHubImageHosting {
     // Intercept file input changes (for mobile file uploads)
     this.plugin.registerDomEvent(document, 'change', (evt: Event) => {
       const target = evt.target as HTMLInputElement;
-      
+
       // Check if it's a file input
       if (target.tagName === 'INPUT' && target.type === 'file' && target.files) {
         const files = target.files;
-        
+
         // Check for image files
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
@@ -106,10 +106,10 @@ export class GitHubImageHosting {
             evt.preventDefault();
             evt.stopPropagation();
             evt.stopImmediatePropagation();
-            
+
             // Handle image upload
             this.handleFileUpload(file);
-            
+
             // Reset file input
             target.value = '';
             break;
