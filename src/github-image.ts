@@ -72,13 +72,9 @@ export class GitHubImageHosting {
         evt.stopPropagation();
         evt.stopImmediatePropagation();
 
-        // Save reference to active textarea/input before modal opens
-        const activeEl = document.activeElement;
-        if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) {
-          this.activeTextareaEl = activeEl;
-        } else {
-          this.activeTextareaEl = null;
-        }
+        // Save reference to the textarea the link should be inserted into
+        // before the modal opens.
+        this.activeTextareaEl = this.resolveInsertTarget();
 
         // Handle image upload
         this.handleImagePaste(evt);
@@ -106,6 +102,11 @@ export class GitHubImageHosting {
             evt.preventDefault();
             evt.stopPropagation();
             evt.stopImmediatePropagation();
+
+            // Save the insert target BEFORE the modal opens. After a file
+            // picker closes, focus sits on the (hidden) file input — not on
+            // the textarea — so resolve it now and reuse it on insert.
+            this.activeTextareaEl = this.resolveInsertTarget();
 
             // Handle image upload
             this.handleFileUpload(file);
@@ -318,7 +319,8 @@ export class GitHubImageHosting {
   }
 
   /**
-   * Check if a textarea element is valid and connected to the DOM
+   * Check if a textarea element is valid and connected to the DOM.
+   * `type=file` inputs are explicitly rejected — they hold no editable text.
    */
   private isTextareaValid(el: HTMLTextAreaElement | HTMLInputElement | null): boolean {
     if (!el) return false;
@@ -326,11 +328,44 @@ export class GitHubImageHosting {
     if (!document.body.contains(el)) return false;
     // Check if element is a textarea or input
     if (!(el instanceof HTMLTextAreaElement) && !(el instanceof HTMLInputElement)) return false;
+    // A file input can't be a write target — it has no editable text.
+    if (el instanceof HTMLInputElement && el.type === 'file') return false;
     // Check if element is disabled or read-only
     if (el.disabled || el.readOnly) return false;
     // Check if element has a valid value property
     if (!('value' in el)) return false;
     return true;
+  }
+
+  /**
+   * Resolve the element an inserted markdown link should go into.
+   *
+   * Priority:
+   *   1. The currently focused textarea/input (the user's natural target).
+   *   2. Any visible, editable textarea on the page (e.g. journal-partner's
+   *      capture input) — needed when the trigger was a file picker: after
+   *      choosing a file the focus sits on the (hidden) file input, so we
+   *      can't rely on document.activeElement.
+   * Returns null when nothing editable is found.
+   */
+  private resolveInsertTarget(): HTMLTextAreaElement | HTMLInputElement | null {
+    const active = document.activeElement;
+    if (this.isTextareaValid(active as HTMLTextAreaElement)) {
+      return active as HTMLTextAreaElement;
+    }
+    // Fall back to the first visible, editable textarea on the page.
+    const textareas = document.querySelectorAll<HTMLTextAreaElement>('textarea');
+    for (const ta of Array.from(textareas)) {
+      if (this.isTextareaValid(ta) && this.isElementVisible(ta)) return ta;
+    }
+    return null;
+  }
+
+  /** True when the element is in the render tree (not hidden via display:none). */
+  private isElementVisible(el: HTMLElement): boolean {
+    if (el.hidden) return false;
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
   }
 
   /**
