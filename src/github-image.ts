@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, TFile, setIcon, requestUrl } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Modal, ItemView, WorkspaceLeaf, Menu, TFile, setIcon, requestUrl } from 'obsidian';
 import type GitHubImageUploaderPlugin from './main';
 
 /**
@@ -34,6 +34,14 @@ export class GitHubImageHosting {
 
   /** Reference to the textarea/input element active when image paste was initiated */
   private activeTextareaEl: HTMLTextAreaElement | HTMLInputElement | null = null;
+
+  /**
+   * Editor (`workspace.activeEditor`) captured when the paste / file pick was
+   * initiated. Covers embedded editors that aren't a MarkdownView — e.g.
+   * journal-partner's Live Preview capture box — and survives the upload
+   * modal stealing focus.
+   */
+  private activeEditor: Editor | null = null;
 
   /**
    * Register paste event listener and file upload interceptor
@@ -75,6 +83,7 @@ export class GitHubImageHosting {
         // Save reference to the textarea the link should be inserted into
         // before the modal opens.
         this.activeTextareaEl = this.resolveInsertTarget();
+        this.activeEditor = this.resolveInsertEditor();
 
         // Handle image upload
         this.handleImagePaste(evt);
@@ -107,6 +116,7 @@ export class GitHubImageHosting {
             // picker closes, focus sits on the (hidden) file input — not on
             // the textarea — so resolve it now and reuse it on insert.
             this.activeTextareaEl = this.resolveInsertTarget();
+            this.activeEditor = this.resolveInsertEditor();
 
             // Handle image upload
             this.handleFileUpload(file);
@@ -290,6 +300,15 @@ export class GitHubImageHosting {
     // Clear stale reference
     this.activeTextareaEl = null;
 
+    // Editor captured at trigger time (embedded editors, or a note that had
+    // focus before the modal opened).
+    const savedEditor = this.activeEditor;
+    this.activeEditor = null;
+    if (savedEditor) {
+      savedEditor.replaceSelection(markdownLink);
+      return true;
+    }
+
     const activeEl = document.activeElement;
 
     // Try textarea first (plain text input)
@@ -359,6 +378,16 @@ export class GitHubImageHosting {
       if (this.isTextareaValid(ta) && this.isElementVisible(ta)) return ta;
     }
     return null;
+  }
+
+  /**
+   * The workspace's active editor, when no plain textarea is focused. This is
+   * how embedded CodeMirror editors outside a MarkdownView are reached; for
+   * a regular note it is that note's editor.
+   */
+  private resolveInsertEditor(): Editor | null {
+    if (this.isTextareaValid(document.activeElement as HTMLTextAreaElement)) return null;
+    return this.app.workspace.activeEditor?.editor ?? null;
   }
 
   /** True when the element is in the render tree (not hidden via display:none). */
