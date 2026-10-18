@@ -1,7 +1,7 @@
 {
 	"id": "github-image-uploader",
 	"name": "GitHub Image Uploader",
-	"version": "1.4.2",
+	"version": "1.5.0",
 	"minAppVersion": "1.4.0",
 	"description": "Upload images to GitHub when pasting. Choose between cloud hosting on GitHub or local storage.",
 	"author": "hankzhao",
